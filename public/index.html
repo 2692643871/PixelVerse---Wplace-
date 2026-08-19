@@ -93,7 +93,11 @@
         <svg viewBox="0 0 24 24" class="chip-ico"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         <b id="meCoins">0</b>
       </div>
-      <button id="btnCheckin" class="chip-btn" title="每日签到（随机 20-50 涂鸦币 + 20-30 涂鸦点）">签到</button>
+      <button id="btnShop" class="chip-btn" title="商店 · 涂鸦币兑换">
+        <svg viewBox="0 0 24 24" class="chip-ico"><path d="M4 7h16l-1.5 13h-13L4 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>
+        <span>商店</span>
+      </button>
+      <button id="btnCheckin" class="chip-btn" title="每日签到（随机 20-50 涂鸦币 + 20-30 临时涂鸦点）">签到</button>
       <button id="btnBoard" class="icon-btn" title="排行榜 · 涂鸦最多前 10">
         <svg viewBox="0 0 24 24"><path d="M6 21h12M7 17h10l1-14H6z"/><path d="M12 3v14M12 3L9 6M12 3l3 3"/></svg>
       </button>
@@ -114,6 +118,13 @@
 
   <!-- 模式提示 -->
   <div id="modeToast" class="mode-toast">拖动模式</div>
+
+  <!-- 临时涂鸦点：独立浮动 UI（与正式点分开显示，点击跳转商店补充） -->
+  <button id="tempHud" class="temp-hud hidden" title="临时涂鸦点（商店兑换，优先消耗）——点击前往商店">
+    <span class="temp-hud-ico">⏱</span>
+    <span class="temp-hud-num" id="tempHudNum">0</span>
+    <span class="temp-hud-label">临时点</span>
+  </button>
 
   <!-- 预输入模式浮动条 -->
   <div id="previewBar" class="preview-bar hidden">
@@ -171,6 +182,7 @@
       <form id="createRoomForm" autocomplete="off">
         <label>房间名<input id="newRoomName" type="text" maxlength="20" placeholder="2-20 位" required></label>
         <label>房间密码（留空为公开）<input id="newRoomPass" type="text" maxlength="32" placeholder="可选"></label>
+        <div class="muted" style="font-size:12px;margin:-4px 0 6px">创建房间需消耗 <b style="color:#ffb454">1 张开房卡</b>（商店 1000 涂鸦币兑换 1 张），当前持有 <b id="myRoomCards" style="color:#ffd166">0</b> 张</div>
         <div id="createErr" class="err"></div>
         <button class="btn primary block" type="submit">创建并进入</button>
       </form>
@@ -219,9 +231,34 @@
       </ul>
 
       <div class="divider"><span>房间</span></div>
+      <button id="btnRoomSettings" class="btn ghost block hidden">房间设置（仅房主）</button>
       <button id="btnDeleteRoom" class="btn danger block hidden">删除当前房间（房主）</button>
       <button id="btnLogout" class="btn ghost block">退出登录</button>
       <a class="btn ghost block center" href="admin.html">管理员后台</a>
+    </div>
+  </aside>
+
+  <!-- 房间设置面板（仅房主可见入口） -->
+  <aside id="settingsPanel" class="panel right">
+    <div class="panel-head">
+      <h2>房间设置</h2>
+      <button class="icon-btn" data-close="settingsPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="shop-card">
+        <div class="shop-card-title">涂鸦点数玩法</div>
+        <div class="shop-card-sub">自定义本房间的涂鸦点数规则，仅对房间内作画生效</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px">
+          <input id="setFreeDrawing" type="checkbox" style="width:16px;height:16px" />
+          <span>房间内涂鸦<b style="color:#43d17a">无需消耗涂鸦点</b></span>
+        </label>
+        <label class="muted" style="font-size:12.5px">涂鸦点恢复间隔（秒，留空跟随全局设置）</label>
+        <div class="shop-row" style="margin-top:6px">
+          <input id="setRegenInput" type="number" min="1" max="86400" placeholder="留空 = 全局（当前 30 秒）" />
+          <button class="pv-btn primary" onclick="saveRoomSettings()">保存</button>
+        </div>
+        <div id="settingsMsg" class="shop-msg"></div>
+      </div>
     </div>
   </aside>
 
@@ -233,6 +270,49 @@
     </div>
     <div class="panel-body">
       <div class="board-list" id="boardRows"></div>
+    </div>
+  </aside>
+
+  <!-- 商店面板 -->
+  <aside id="shopPanel" class="panel right">
+    <div class="panel-head">
+      <h2>🛒 商店</h2>
+      <button class="icon-btn" data-close="shopPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="shop-balance">
+        我的涂鸦币：<b id="shopCoins">0</b>
+        <span class="muted" id="shopTempInfo"></span>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">永久点数上限</div>
+        <div class="shop-card-sub">1 涂鸦币 = 提升 1 点上限（当前上限 <b id="shopLimit">60</b>）</div>
+        <div class="shop-row">
+          <input id="shopLimitInput" type="number" min="1" max="500" value="10" placeholder="数量" />
+          <button class="pv-btn primary" onclick="shopBuyLimit()">兑换</button>
+        </div>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">临时涂鸦点</div>
+        <div class="shop-card-sub">1 涂鸦币 = 10 临时点（与正式点分开计数，画布上优先消耗）</div>
+        <div class="shop-row">
+          <input id="shopTempInput" type="number" min="10" step="10" max="2000" value="10" placeholder="临时点数" />
+          <button class="pv-btn primary" onclick="shopBuyTemp()">兑换</button>
+        </div>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">开房卡</div>
+        <div class="shop-card-sub">1000 涂鸦币 = 1 张（创建房间消耗 1 张，当前持有 <b id="shopCards" style="color:#ffd166">0</b> 张）</div>
+        <div class="shop-row">
+          <input id="shopCardInput" type="number" min="1" max="50" value="1" placeholder="张数" />
+          <button class="pv-btn primary" onclick="shopBuyCard()">兑换</button>
+        </div>
+      </div>
+
+      <div id="shopMsg" class="shop-msg"></div>
     </div>
   </aside>
 

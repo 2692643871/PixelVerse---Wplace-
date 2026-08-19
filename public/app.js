@@ -170,6 +170,8 @@ function closePanels() {
   $('roomPanel').classList.remove('open');
   $('menuPanel').classList.remove('open');
   $('boardPanel').classList.remove('open');
+  $('shopPanel').classList.remove('open');
+  $('settingsPanel').classList.remove('open');
   $('overlay').classList.remove('show');
 }
 
@@ -310,6 +312,7 @@ function renderMe() {
     $('meTotal').textContent = '-';
     $('meProgressText').textContent = '登录后开始涂鸦';
     $('meProgressFill').style.width = '0%';
+    $('tempHud').classList.add('hidden');
     const btn = $('btnCheckin');
     btn.textContent = '签到'; btn.disabled = false; btn.classList.remove('checked');
     return;
@@ -320,6 +323,11 @@ function renderMe() {
   $('meAvatar').textContent = (u.username[0] || 'P').toUpperCase();
   const lim = u.pointLimit || 60;
   $('mePoints').textContent = u.points + '/' + lim;
+
+  // 临时涂鸦点：独立浮动 UI（画布右下角，与正式点分开；仅在有值时显示）
+  const tp = u.tempPoints || 0;
+  $('tempHudNum').textContent = tp;
+  $('tempHud').classList.toggle('hidden', tp <= 0);
 
   // 等级 / 涂鸦币 / 累计涂鸦
   $('meLevel').textContent = u.level || 1;
@@ -345,6 +353,102 @@ function renderMe() {
   const btn = $('btnCheckin');
   if (u.checkedToday) { btn.textContent = '已签到'; btn.disabled = true; btn.classList.add('checked'); }
   else { btn.textContent = '签到'; btn.disabled = false; btn.classList.remove('checked'); }
+
+  // 商店面板余额同步（面板关闭时也无妨）
+  $('shopCoins').textContent = u.coins || 0;
+  $('shopLimit').textContent = u.pointLimit || 60;
+  $('shopCards').textContent = u.roomCards || 0;
+  $('shopTempInfo').textContent = tp > 0 ? `当前临时点 ${tp}` : '暂无可消耗的临时点';
+  $('myRoomCards').textContent = u.roomCards || 0;
+}
+
+/* =========================================================
+ *  商店：涂鸦币兑换点数上限 / 临时涂鸦点
+ * ======================================================= */
+function refreshShop() {
+  if (!S.user) return;
+  $('shopCoins').textContent = S.user.coins || 0;
+  $('shopLimit').textContent = S.user.pointLimit || 60;
+  $('shopCards').textContent = S.user.roomCards || 0;
+  $('shopTempInfo').textContent = (S.user.tempPoints || 0) > 0 ? `当前临时点 ${S.user.tempPoints}` : '暂无可消耗的临时点';
+  $('shopMsg').textContent = '';
+}
+
+async function shopBuyLimit() {
+  if (!S.user) { toast('请先登录', true); return; }
+  const amount = Math.trunc(Number($('shopLimitInput').value));
+  if (!Number.isFinite(amount) || amount < 1) { $('shopMsg').textContent = '请输入正确的兑换数量'; return; }
+  try {
+    const d = await api('/api/shop/buy-limit', { method: 'POST', body: { amount } });
+    S.user = d.user;
+    renderMe();
+    $('shopMsg').textContent = d.message;
+    toast(d.message);
+  } catch (err) {
+    $('shopMsg').textContent = err.message;
+    toast(err.message, true);
+  }
+}
+
+async function shopBuyTemp() {
+  if (!S.user) { toast('请先登录', true); return; }
+  const points = Math.trunc(Number($('shopTempInput').value));
+  if (!Number.isFinite(points) || points < 10 || points % 10 !== 0) { $('shopMsg').textContent = '临时点数需为 10 的倍数（至少 10）'; return; }
+  try {
+    const d = await api('/api/shop/buy-temp', { method: 'POST', body: { points } });
+    S.user = d.user;
+    renderMe();
+    $('shopMsg').textContent = d.message;
+    toast(d.message);
+  } catch (err) {
+    $('shopMsg').textContent = err.message;
+    toast(err.message, true);
+  }
+}
+
+async function shopBuyCard() {
+  if (!S.user) { toast('请先登录', true); return; }
+  const cards = Math.trunc(Number($('shopCardInput').value));
+  if (!Number.isFinite(cards) || cards < 1) { $('shopMsg').textContent = '请输入正确的张数'; return; }
+  try {
+    const d = await api('/api/shop/buy-card', { method: 'POST', body: { cards } });
+    S.user = d.user;
+    renderMe();
+    $('shopMsg').textContent = d.message;
+    toast(d.message);
+  } catch (err) {
+    $('shopMsg').textContent = err.message;
+    toast(err.message, true);
+  }
+}
+
+/* =========================================================
+ *  房间设置（仅房主）：免点涂鸦 / 自定义恢复间隔
+ * ======================================================= */
+function updateRoomSettingsForm() {
+  if (!S.room) return;
+  $('setFreeDrawing').checked = !!S.room.freeDrawing;
+  $('setRegenInput').value = S.room.pointRegenSeconds != null ? S.room.pointRegenSeconds : '';
+  $('settingsMsg').textContent = '';
+}
+
+async function saveRoomSettings() {
+  if (!S.room || !S.room.isOwner) { toast('只有房主可以设置房间玩法', true); return; }
+  const freeDrawing = $('setFreeDrawing').checked;
+  const regenVal = $('setRegenInput').value.trim();
+  const body = { freeDrawing };
+  if (regenVal !== '') body.pointRegenSeconds = Number(regenVal);
+  try {
+    const d = await api('/api/rooms/' + S.room.id + '/settings', { method: 'PUT', body });
+    S.room.freeDrawing = d.room.freeDrawing;
+    S.room.pointRegenSeconds = d.room.pointRegenSeconds;
+    updateRoomSettingsForm();
+    $('settingsMsg').textContent = '保存成功' + (d.room.freeDrawing ? '，本房间涂鸦免点' : '') + (d.room.pointRegenSeconds ? `，恢复间隔 ${d.room.pointRegenSeconds} 秒` : '，恢复间隔跟随全局');
+    toast('房间玩法已更新');
+  } catch (err) {
+    $('settingsMsg').textContent = err.message;
+    toast(err.message, true);
+  }
 }
 
 /* =========================================================
@@ -847,10 +951,11 @@ function apiPreviewPlace(x, y, color) {
       S.user.level = d.level;
       S.user.coins = d.coins;
       S.user.totalPlaced = d.totalPlaced;
+      if (d.tempPoints != null) S.user.tempPoints = d.tempPoints;
       renderMe();
     }
     if (d.levelUp) {
-      toast(`🎉 升到 Lv.${d.levelUp.level}！获得 ${d.levelUp.bonus} 涂鸦币，上限提升至 ${d.levelUp.limit}`);
+      toast(`🎉 升到 Lv.${d.levelUp.level}！获得 ${d.levelUp.bonus} 涂鸦币 + ${d.levelUp.tempBonus ?? 0} 临时涂鸦点，上限提升至 ${d.levelUp.limit}`);
     }
   }).catch((err) => {
     // 扣点失败（点数不足等）→ 回滚本地预览
@@ -979,14 +1084,44 @@ function connectWS() {
       case 'joined': {
         S.room = m.room;
         localStorage.setItem('pv_room', String(m.room.id));
-        S.pixels = new Map(m.pixels.map((p) => [cellKey(p.x, p.y), p.color]));
+        S.pixels = new Map();          // 清空，等待分块像素到达（大房间避免一次性构建卡顿）
         $('roomName').textContent = m.room.name;
         $('roomLock').classList.toggle('hidden', !m.room.hasPassword);
         $('btnDeleteRoom').classList.toggle('hidden', !m.room.isOwner);
+        $('btnRoomSettings').classList.toggle('hidden', !m.room.isOwner);
         if (m.user) { S.user = m.user; renderMe(); }
         draw();
         refreshRooms();
-        toast(`已进入「${m.room.name}」`);
+        toast(m.pixelTotal > 3000
+          ? `已进入「${m.room.name}」，正在加载 ${m.pixelTotal} 像素画布…`
+          : `已进入「${m.room.name}」`);
+        break;
+      }
+
+      case 'pixels_chunk': {
+        // 增量构建画布：每块最多 3000 像素，逐块填充并重绘视口
+        const c = m.chunk || [];
+        if (c.length) {
+          for (const p of c) S.pixels.set(cellKey(p.x, p.y), p.color);
+          draw();
+        }
+        break;
+      }
+
+      case 'pixels_done': {
+        toast(`画布加载完成（共 ${S.pixels.size} 像素）`);
+        draw();
+        break;
+      }
+
+      case 'room_settings': {
+        if (S.room && S.room.id === m.room.id) {
+          S.room.freeDrawing = m.room.freeDrawing;
+          S.room.pointRegenSeconds = m.room.pointRegenSeconds;
+          if (m.room.freeDrawing) toast('本房间已开启免点涂鸦（不消耗涂鸦点）');
+          else if (S.room.isOwner) toast('本房间已关闭免点涂鸦');
+          updateRoomSettingsForm();
+        }
         break;
       }
 
@@ -1011,6 +1146,7 @@ function connectWS() {
           if (m.level != null) S.user.level = m.level;
           if (m.coins != null) S.user.coins = m.coins;
           if (m.totalPlaced != null) S.user.totalPlaced = m.totalPlaced;
+          if (m.tempPoints != null) S.user.tempPoints = m.tempPoints;
           renderMe();
         }
         break;
@@ -1021,9 +1157,10 @@ function connectWS() {
           S.user.coins = m.coins;
           if (m.limit != null) S.user.pointLimit = m.limit;
           if (m.total != null) S.user.totalPlaced = m.total;
+          if (m.tempBonus != null) S.user.tempPoints = (S.user.tempPoints || 0) + m.tempBonus;
           renderMe();
         }
-        toast(`🎉 升到 Lv.${m.level}！获得 ${m.bonus} 涂鸦币，点数上限提升至 ${m.limit}`);
+        toast(`🎉 升到 Lv.${m.level}！获得 ${m.bonus} 涂鸦币 + ${m.tempBonus ?? 0} 临时涂鸦点，点数上限提升至 ${m.limit}`);
         break;
 
       case 'presence':
@@ -1093,6 +1230,8 @@ function submitPwd() {
 $('btnRooms').addEventListener('click', () => { openPanel('roomPanel'); refreshRooms(); });
 $('btnMenu').addEventListener('click', () => openPanel('menuPanel'));
 $('btnBoard').addEventListener('click', () => { openPanel('boardPanel'); loadBoard(); });
+$('btnShop').addEventListener('click', () => { openPanel('shopPanel'); refreshShop(); });
+$('tempHud').addEventListener('click', () => { if (!requireLogin()) return; openPanel('shopPanel'); refreshShop(); });
 $('overlay').addEventListener('click', closePanels);
 document.querySelectorAll('[data-close]').forEach((b) =>
   b.addEventListener('click', closePanels));
@@ -1103,11 +1242,12 @@ $('btnCheckin').addEventListener('click', async () => {
     const d = await api('/api/checkin', { method: 'POST' });
     if (S.user) {
       S.user.points = d.pointsNow;
+      S.user.tempPoints = d.tempPointsNow;
       S.user.coins = d.totalCoins;
       S.user.checkedToday = true;
       renderMe();
     }
-    toast(`✅ 签到成功！+${d.points} 涂鸦点 · +${d.coins} 涂鸦币`);
+    toast(`✅ 签到成功！+${d.coins} 涂鸦币 · +${d.tempPoints} 临时涂鸦点`);
   } catch (e) {
     toast(e.message, true);
   }
@@ -1172,7 +1312,9 @@ $('createRoomForm').addEventListener('submit', async (e) => {
   const password = $('newRoomPass').value;
   $('createErr').textContent = '';
   try {
-    const { room } = await api('/api/rooms', { method: 'POST', body: { name, password } });
+    const d = await api('/api/rooms', { method: 'POST', body: { name, password } });
+    const room = d.room;
+    if (d.user) { S.user = d.user; renderMe(); }   // 开房卡 -1 同步
     S.roomPasswords[room.id] = password;
     localStorage.setItem('pv_room_pwd', JSON.stringify(S.roomPasswords));
     $('newRoomName').value = ''; $('newRoomPass').value = '';
@@ -1193,6 +1335,12 @@ $('btnDeleteRoom').addEventListener('click', async () => {
   } catch (err) {
     toast(err.message, true);
   }
+});
+
+$('btnRoomSettings').addEventListener('click', () => {
+  if (!S.room || !S.room.isOwner) return;
+  updateRoomSettingsForm();
+  openPanel('settingsPanel');
 });
 
 function esc(s) {

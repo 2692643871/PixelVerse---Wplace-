@@ -94,11 +94,19 @@
   }
   .modal-head h3 { margin: 0; }
   .modal-body { overflow: auto; padding: 14px 16px; }
+  .modal-body input[type="number"], .modal-body input[type="text"], .modal-body input[type="password"] {
+    background: var(--panel); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px;
+  }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
   .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   .filters input { width: 130px; display: inline-block; }
   .action-badge { font-size: 11px; padding: 1px 7px; border-radius: 2px; }
   .action-badge.place { background: #143a2a; color: var(--ok); }
   .action-badge.erase { background: #2a161a; color: var(--danger); }
+  .action-badge.limit { background: #3a2a14; color: var(--warn); }
+  .action-badge.temp { background: #14333f; color: #7dd3fc; }
+  .action-badge.free { background: #143a2a; color: var(--ok); }
   .copy-btn { cursor: pointer; color: var(--accent); margin-left: 6px; font-size: 12px; }
 </style>
 </head>
@@ -162,11 +170,11 @@
 
     <div class="section">
       <h3>房间列表（<span id="room-count">0</span>）</h3>
-      <div class="toolbar"><span class="muted">可查看房间密码、在线人数，并执行清空画布 / 改密码 / 删除</span></div>
+      <div class="toolbar"><span class="muted">可查看房间密码、在线人数、玩法设置，并执行清空画布 / 改密码 / 删除</span></div>
       <table>
         <thead><tr>
           <th>ID</th><th>房间名</th><th>类型</th><th>房间密码</th><th>房主</th>
-          <th>像素数</th><th>在线</th><th>创建时间</th><th>操作</th>
+          <th>玩法</th><th>像素数</th><th>在线</th><th>创建时间</th><th>操作</th>
         </tr></thead>
         <tbody id="room-rows"></tbody>
       </table>
@@ -193,6 +201,48 @@
         <button id="logPrev" class="sm" onclick="loadAllLogs(allLogsPage - 1)">← 上一页</button>
         <button id="logNext" class="sm" onclick="loadAllLogs(allLogsPage + 1)">下一页 →</button>
         <span class="info" id="logPageInfo"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>商店流水（<span id="shoplog-count">0</span>）</h3>
+      <div class="toolbar">
+        <span class="muted">记录玩家用涂鸦币兑换点数上限 / 临时涂鸦点的明细：用户 ID、花费币数、兑换内容与数量</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>时间</th><th>用户 ID</th><th>用户名</th><th>兑换类型</th><th>花费涂鸦币</th><th>兑换数量</th>
+        </tr></thead>
+        <tbody id="shoplog-rows"></tbody>
+      </table>
+      <div class="pager">
+        <button id="shoplogPrev" class="sm" onclick="loadShopLogs(shopLogPage - 1)">← 上一页</button>
+        <button id="shoplogNext" class="sm" onclick="loadShopLogs(shopLogPage + 1)">下一页 →</button>
+        <span class="info" id="shoplogPageInfo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 房间玩法设置弹窗 -->
+<div id="roomSetModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="roomSetTitle">房间玩法设置</h3>
+      <button onclick="closeRoomSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:14px">
+        <input id="roomSetFree" type="checkbox" style="width:16px;height:16px" />
+        <span>房间内涂鸦<b style="color:var(--ok)">无需消耗涂鸦点</b></span>
+      </label>
+      <label class="muted" style="font-size:12.5px">涂鸦点恢复间隔（秒，留空跟随全局）</label>
+      <input id="roomSetRegen" type="number" min="1" max="86400" placeholder="留空 = 跟随全局"
+             style="width:100%;box-sizing:border-box;margin:6px 0 10px" />
+      <div id="roomSetMsg" class="err"></div>
+      <div class="modal-actions">
+        <button class="primary" onclick="saveRoomSettingsAdmin()">保存玩法</button>
+        <button onclick="closeRoomSettings()">取消</button>
       </div>
     </div>
   </div>
@@ -315,7 +365,7 @@ async function refreshAll() {
       $('regenInput').value = cfg.pointRegenSeconds;
       $('evrInput').checked = cfg.emailVerifyRequired !== false;
     } catch { /* ignore */ }
-    await Promise.all([loadUsers(), loadRooms(), loadAllLogs(allLogsPage)]);
+    await Promise.all([loadUsers(), loadRooms(), loadAllLogs(allLogsPage), loadShopLogs(shopLogPage)]);
   } catch (e) {
     if (/401|403/.test(e.message)) { logout(); return; }
     flash('dash-msg', e.message, false);
@@ -403,6 +453,35 @@ async function loadAllLogs(page) {
   } catch (e) { flash('dash-msg', e.message, false); }
 }
 
+/* ---------- 商店流水 ---------- */
+const SHOP_PAGE_SIZE = 100;
+let shopLogPage = 1;
+
+function shopLogRowHtml(l) {
+  const typeText = l.type === 'limit' ? '点数上限 +' + l.amount : '临时涂鸦点 +' + l.amount;
+  const typeBadge = l.type === 'limit' ? 'limit' : 'temp';
+  return `<tr>
+    <td class="muted">${esc(l.created_at || '—')}</td>
+    <td class="mono">${l.user_id}</td>
+    <td>${l.username !== null && l.username !== undefined ? esc(l.username) : '<span class="muted">—</span>'}</td>
+    <td><span class="action-badge ${typeBadge}">${typeText}</span></td>
+    <td class="mono">${l.coins_spent}</td>
+    <td class="mono">${l.amount}</td>
+  </tr>`;
+}
+
+async function loadShopLogs(page) {
+  shopLogPage = Math.max(1, page);
+  const q = new URLSearchParams({ limit: SHOP_PAGE_SIZE, offset: (shopLogPage - 1) * SHOP_PAGE_SIZE });
+  try {
+    const d = await api('GET', '/api/admin/shop-logs?' + q.toString());
+    $('shoplog-rows').innerHTML = d.logs.length
+      ? d.logs.map(shopLogRowHtml).join('') : '<tr><td colspan="6" class="muted">暂无商店流水</td></tr>';
+    $('shoplog-count').textContent = d.total;
+    renderPager('shoplogPrev', 'shoplogNext', 'shoplogPageInfo', shopLogPage, d.total, 'loadShopLogs');
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
 // 单用户画迹弹窗
 async function openUserLogs(userId, username) {
   userLogUserId = userId;
@@ -441,6 +520,7 @@ function copyCoord(x, y) {
 
 async function loadRooms() {
   const d = await api('GET', '/api/admin/rooms');
+  roomCache = d.rooms;
   $('room-count').textContent = d.rooms.length;
   $('room-rows').innerHTML = d.rooms.map((r) => `
     <tr>
@@ -449,17 +529,54 @@ async function loadRooms() {
       <td>${r.isPublic ? '<span class="tag pub">公共</span>' : '<span class="tag priv">私有</span>'}</td>
       <td class="pwd mono">${r.password ? esc(r.password) : '<span class="muted">无</span>'}</td>
       <td>${esc(r.owner || '—')}</td>
+      <td>${roomPlayText(r)}</td>
       <td>${r.pixelCount}</td>
       <td>${r.online}</td>
       <td class="muted">${esc(r.createdAt || '—')}</td>
       <td>
         <div class="actions">
+          <button class="sm" onclick="openRoomSettings(${r.id}, '${esc(r.name).replace(/'/g, "\\'")}')">设置玩法</button>
           <button class="sm" onclick="clearRoom(${r.id})">清空画布</button>
           <button class="sm" onclick="setPwd(${r.id})">改密码</button>
           ${r.isPublic ? '<span class="muted">不可删</span>' : `<button class="sm danger" onclick="delRoom(${r.id})">删除</button>`}
         </div>
       </td>
     </tr>`).join('');
+}
+
+function roomPlayText(r) {
+  const parts = [];
+  parts.push(r.freeDrawing ? '<span class="action-badge free">免点涂鸦</span>' : '<span class="action-badge place">正常扣点</span>');
+  parts.push(r.pointRegenSeconds != null
+    ? `<span class="action-badge temp">恢复 ${r.pointRegenSeconds}s</span>`
+    : '<span class="muted">跟随全局</span>');
+  return parts.join(' ');
+}
+
+/* ---------- 房间玩法设置弹窗 ---------- */
+let roomSettingId = null;
+let roomCache = null;
+function openRoomSettings(id, name) {
+  roomSettingId = id;
+  $('roomSetTitle').textContent = `房间玩法设置 · ${name}`;
+  const r = roomCache ? roomCache.find((x) => x.id === id) : null;
+  $('roomSetFree').checked = !!(r && r.freeDrawing);
+  $('roomSetRegen').value = (r && r.pointRegenSeconds != null) ? r.pointRegenSeconds : '';
+  $('roomSetMsg').textContent = '';
+  $('roomSetModal').classList.remove('hidden');
+}
+function closeRoomSettings() { $('roomSetModal').classList.add('hidden'); }
+
+async function saveRoomSettingsAdmin() {
+  const body = { freeDrawing: $('roomSetFree').checked };
+  const v = $('roomSetRegen').value.trim();
+  if (v !== '') body.pointRegenSeconds = Number(v);
+  try {
+    const d = await api('POST', `/api/admin/rooms/${roomSettingId}/settings`, body);
+    flash('dash-msg', '房间玩法已更新', true);
+    closeRoomSettings();
+    refreshAll();
+  } catch (e) { $('roomSetMsg').textContent = e.message; }
 }
 
 async function clearRoom(id) {
