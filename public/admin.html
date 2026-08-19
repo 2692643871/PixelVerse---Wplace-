@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>像素画布 · 管理后台</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #11131a; --panel: #1a1d27; --panel2: #212533;
+    --line: #2c3142; --txt: #e6e9f0; --muted: #8b91a3;
+    --accent: #4cc2ff; --danger: #ff5d6c; --ok: #43d17a; --warn: #ffb454;
+    --pixel: 4px;
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font-family: "Courier New", ui-monospace, monospace; font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; background: var(--panel);
+    border-bottom: var(--pixel) solid var(--line);
+  }
+  .brand { font-weight: bold; letter-spacing: 1px; font-size: 16px; }
+  .brand b { color: var(--accent); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px; }
+  .hidden { display: none !important; }
+  button {
+    font-family: inherit; cursor: pointer; border: 2px solid var(--line);
+    background: var(--panel2); color: var(--txt); padding: 6px 12px;
+    border-radius: 2px; transition: .12s; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.danger { border-color: #5a2730; color: var(--danger); }
+  button.danger:hover { background: #2a161a; }
+  button.primary { background: var(--accent); color: #06121a; border-color: var(--accent); font-weight: bold; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.sm { padding: 3px 8px; font-size: 12px; }
+  input {
+    font-family: inherit; background: var(--bg); color: var(--txt);
+    border: 2px solid var(--line); padding: 8px 10px; border-radius: 2px; width: 100%;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+
+  /* 登录 */
+  #login { max-width: 360px; margin: 12vh auto; }
+  #login h2 { text-align: center; margin: 0 0 18px; }
+  #login .row { margin-bottom: 12px; }
+
+  /* 概览卡片 */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--panel); border: 2px solid var(--line); padding: 14px; text-align: center; }
+  .stat .num { font-size: 26px; font-weight: bold; color: var(--accent); }
+  .stat .lbl { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  .section { margin-bottom: 28px; }
+  .section h3 { border-left: var(--pixel) solid var(--accent); padding-left: 10px; margin: 0 0 12px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: normal; background: var(--panel2); }
+  tr:hover td { background: #1f2330; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 2px; font-size: 11px; }
+  .tag.pub { background: #143a2a; color: var(--ok); }
+  .tag.priv { background: #2a2433; color: var(--muted); }
+  .tag.ban { background: #2a161a; color: var(--danger); }
+  .tag.on { background: #143a2a; color: var(--ok); }
+  .tag.off { background: #222; color: var(--muted); }
+  .mono { font-family: "Courier New", monospace; }
+  .pwd { color: var(--warn); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .msg { padding: 8px 12px; margin: 10px 0; border-radius: 2px; font-size: 13px; }
+  .msg.err { background: #2a161a; color: var(--danger); }
+  .msg.ok { background: #143a2a; color: var(--ok); }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .muted { color: var(--muted); }
+  a.link { color: var(--accent); cursor: pointer; }
+
+  /* 画迹：色块 / 分页 / 弹窗 */
+  .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #555; vertical-align: -2px; margin-right: 4px; }
+  .pager { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .pager .info { color: var(--muted); font-size: 12px; }
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex;
+    align-items: center; justify-content: center; z-index: 99;
+  }
+  .modal-box {
+    width: min(960px, 94vw); max-height: 84vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-bottom: 2px solid var(--line);
+  }
+  .modal-head h3 { margin: 0; }
+  .modal-body { overflow: auto; padding: 14px 16px; }
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .filters input { width: 130px; display: inline-block; }
+  .action-badge { font-size: 11px; padding: 1px 7px; border-radius: 2px; }
+  .action-badge.place { background: #143a2a; color: var(--ok); }
+  .action-badge.erase { background: #2a161a; color: var(--danger); }
+  .copy-btn { cursor: pointer; color: var(--accent); margin-left: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">像素画布 · <b>管理后台</b></div>
+  <div id="head-right" class="muted">未登录</div>
+</header>
+
+<div class="wrap">
+
+  <!-- 登录 -->
+  <div id="login" class="hidden">
+    <h2>管理员登录</h2>
+    <div id="login-msg"></div>
+    <div class="row"><input id="admin-user" placeholder="管理员账号" autocomplete="username" /></div>
+    <div class="row"><input id="admin-pass" type="password" placeholder="密码" autocomplete="current-password" /></div>
+    <button class="primary" style="width:100%" onclick="doLogin()">登录</button>
+    <p class="muted" style="text-align:center;margin-top:14px;font-size:12px">
+      默认账号 admin / admin123（环境变量 ADMIN_USER、ADMIN_PASS 可修改）
+    </p>
+    <p style="text-align:center;margin-top:8px"><a class="link" href="/">← 返回作画页</a></p>
+  </div>
+
+  <!-- 后台主体 -->
+  <div id="dash" class="hidden">
+    <div id="dash-msg"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="section">
+      <h3>全局设置</h3>
+      <div class="toolbar">
+        <span class="muted">点数额度恢复间隔（秒）：每到此间隔，给未达上限的玩家 +1 点</span>
+        <span>
+          <input id="regenInput" type="number" min="1" max="86400" value="30"
+                 style="width:110px;display:inline-block;margin-right:8px" />
+          <button class="primary" onclick="saveSettings()">保存间隔</button>
+        </span>
+      </div>
+      <div class="toolbar" style="margin-top:10px">
+        <span class="muted">注册邮箱验证（QQ 邮箱发验证码）：关闭后注册无需邮箱</span>
+        <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--txt)">
+          <input id="evrInput" type="checkbox" checked style="width:auto" />
+          <span>需要邮箱验证</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>玩家账号（<span id="user-count">0</span>）</h3>
+      <div class="toolbar"><span class="muted">可查看账号、密码、邮箱、作画点数，并执行详情修改 / 封禁 / 重置点数 / 删除</span></div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>账号</th><th>密码</th><th>作画点数</th><th>涂鸦币</th><th>状态</th>
+          <th>在线</th><th>创建房间</th><th>注册时间</th><th>操作</th>
+        </tr></thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3>房间列表（<span id="room-count">0</span>）</h3>
+      <div class="toolbar"><span class="muted">可查看房间密码、在线人数，并执行清空画布 / 改密码 / 删除</span></div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>房间名</th><th>类型</th><th>房间密码</th><th>房主</th>
+          <th>像素数</th><th>在线</th><th>创建时间</th><th>操作</th>
+        </tr></thead>
+        <tbody id="room-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3>画迹总览（<span id="log-count">0</span>）</h3>
+      <div class="toolbar">
+        <span class="muted">记录每位玩家的每次落子 / 擦除，按时间倒序，便于溯源</span>
+      </div>
+      <div class="filters">
+        <input id="logFilterUser" type="number" placeholder="用户ID" />
+        <input id="logFilterRoom" type="number" placeholder="房间ID" />
+        <button class="primary" onclick="loadAllLogs(1)">筛选</button>
+        <button onclick="document.getElementById('logFilterUser').value='';document.getElementById('logFilterRoom').value='';loadAllLogs(1)">清除</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>时间</th><th>用户</th><th>房间</th><th>坐标 (X, Y)</th><th>颜色</th><th>操作</th>
+        </tr></thead>
+        <tbody id="log-rows"></tbody>
+      </table>
+      <div class="pager">
+        <button id="logPrev" class="sm" onclick="loadAllLogs(allLogsPage - 1)">← 上一页</button>
+        <button id="logNext" class="sm" onclick="loadAllLogs(allLogsPage + 1)">下一页 →</button>
+        <span class="info" id="logPageInfo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单用户画迹弹窗 -->
+<div id="userLogModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="userLogTitle">画迹</h3>
+      <button onclick="closeUserLogs()">✕</button>
+    </div>
+    <div class="modal-body">
+      <table>
+        <thead><tr>
+          <th>时间</th><th>房间</th><th>坐标 (X, Y)</th><th>颜色</th><th>操作</th>
+        </tr></thead>
+        <tbody id="userLogRows"></tbody>
+      </table>
+      <div class="pager">
+        <button id="uLogPrev" class="sm" onclick="loadUserLogs(userLogPage - 1)">← 上一页</button>
+        <button id="uLogNext" class="sm" onclick="loadUserLogs(userLogPage + 1)">下一页 →</button>
+        <span class="info" id="userLogPageInfo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单用户详情弹窗（查看/修改账号、密码、邮箱） -->
+<div id="userDetailModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>用户详情</h3>
+      <button onclick="show('userDetailModal', false)">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;margin-bottom:12px">账号
+        <input id="udUser" type="text" maxlength="20" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <label style="display:block;margin-bottom:12px">密码
+        <input id="udPass" type="text" maxlength="32" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <label style="display:block;margin-bottom:12px">邮箱
+        <input id="udEmail" type="email" maxlength="255" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <div id="udErr" style="color:#ff8080;font-size:12.5px;min-height:18px"></div>
+      <button class="primary" style="width:100%;padding:11px;border:0;border-radius:8px;font-weight:600" onclick="saveUserDetail()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('adminToken') || '';
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+async function api(method, url, body) {
+  const opt = { method, headers: { 'Content-Type': 'application/json' } };
+  if (token) opt.headers.Authorization = 'Bearer ' + token;
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(url, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) throw new Error(data.message || ('HTTP ' + r.status));
+  return data;
+}
+
+function show(el, on) { $(el).classList.toggle('hidden', !on); }
+
+function flash(box, text, ok) {
+  const d = $(box);
+  d.innerHTML = text ? `<div class="msg ${ok ? 'ok' : 'err'}">${esc(text)}</div>` : '';
+  if (text) setTimeout(() => { if (d.firstChild) d.innerHTML = ''; }, 2500);
+}
+
+// -------- 登录 --------
+async function doLogin() {
+  const username = $('admin-user').value.trim();
+  const password = $('admin-pass').value;
+  try {
+    const d = await api('POST', '/api/admin/login', { username, password });
+    token = d.token;
+    localStorage.setItem('adminToken', token);
+    openDash();
+  } catch (e) {
+    flash('login-msg', e.message, false);
+  }
+}
+$('admin-pass')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+function logout() {
+  token = '';
+  localStorage.removeItem('adminToken');
+  location.reload();
+}
+
+// -------- 后台 --------
+function openDash() {
+  show('login', false); show('dash', true);
+  $('head-right').innerHTML = `已登录 · <a class="link" onclick="logout()">退出</a>`;
+  refreshAll();
+}
+
+async function refreshAll() {
+  try {
+    const s = await api('GET', '/api/admin/stats');
+    const st = s.stats;
+    $('stats').innerHTML = `
+      <div class="stat"><div class="num">${st.users}</div><div class="lbl">玩家总数</div></div>
+      <div class="stat"><div class="num" style="color:var(--danger)">${st.banned}</div><div class="lbl">已封禁</div></div>
+      <div class="stat"><div class="num">${st.rooms}</div><div class="lbl">房间数</div></div>
+      <div class="stat"><div class="num">${st.pixels}</div><div class="lbl">像素总数</div></div>
+      <div class="stat"><div class="num" style="color:var(--ok)">${st.online}</div><div class="lbl">在线连接</div></div>`;
+    try {
+      const cfg = await api('GET', '/api/admin/settings');
+      $('regenInput').value = cfg.pointRegenSeconds;
+      $('evrInput').checked = cfg.emailVerifyRequired !== false;
+    } catch { /* ignore */ }
+    await Promise.all([loadUsers(), loadRooms(), loadAllLogs(allLogsPage)]);
+  } catch (e) {
+    if (/401|403/.test(e.message)) { logout(); return; }
+    flash('dash-msg', e.message, false);
+  }
+}
+
+async function loadUsers() {
+  const d = await api('GET', '/api/admin/users');
+  window._usersCache = d.users;
+  $('user-count').textContent = d.users.length;
+  $('user-rows').innerHTML = d.users.map((u) => `
+    <tr>
+      <td>${u.id}</td>
+      <td>${esc(u.username)}${u.isAdmin ? ' <span class="tag pub">管理员</span>' : ''}</td>
+      <td class="pwd mono">${esc(u.password)}</td>
+      <td>${u.points}<span class="muted">/${u.point_limit}</span></td>
+      <td class="mono" style="color:var(--warn)">${u.coins ?? 0}</td>
+      <td>${u.banned ? '<span class="tag ban">已封禁</span>' : '<span class="tag on">正常</span>'}</td>
+      <td>${u.online ? '<span class="tag on">在线</span>' : '<span class="tag off">离线</span>'}</td>
+      <td>${u.ownedRooms}</td>
+      <td class="muted">${esc(u.createdAt || '—')}</td>
+      <td>
+        <div class="actions">
+          ${u.isAdmin ? '<span class="muted">—</span>' : `
+            <button class="sm" onclick="openUserDetail(${u.id})">详情</button>
+            <button class="sm" onclick="openUserLogs(${u.id}, ${JSON.stringify(u.username).replace(/"/g, '&quot;')})">画迹</button>
+            <button class="sm ${u.banned ? '' : 'danger'}" onclick="banUser(${u.id}, ${u.banned ? 0 : 1})">
+              ${u.banned ? '解封' : '封禁'}</button>
+            <button class="sm" onclick="setUserPoints(${u.id}, ${u.points}, ${u.point_limit})">设点数</button>
+            <button class="sm" onclick="setUserCoins(${u.id}, ${u.coins ?? 0})">设涂鸦币</button>
+            <button class="sm" onclick="resetPoints(${u.id})">重置点数</button>
+            <button class="sm danger" onclick="delUser(${u.id})">删除</button>`}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+async function banUser(id, banned) {
+  try { await api('POST', `/api/admin/users/${id}/ban`, { banned }); flash('dash-msg', banned ? '已封禁' : '已解封', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function resetPoints(id) {
+  try { await api('POST', `/api/admin/users/${id}/reset-points`); flash('dash-msg', '点数已重置', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function delUser(id) {
+  if (!confirm('确认删除该玩家？其创建的非公共房间将一并被删除。')) return;
+  try { await api('DELETE', `/api/admin/users/${id}`); flash('dash-msg', '已删除玩家', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+
+/* ---------- 画迹（溯源） ---------- */
+const LOG_PAGE_SIZE = 100;
+let allLogsPage = 1;
+let userLogPage = 1;
+let userLogUserId = null;
+
+function logRowHtml(l) {
+  const colorCell = l.color
+    ? `<span class="swatch" style="background:${l.color}"></span><span class="mono">${l.color}</span>`
+    : '<span class="muted">—</span>';
+  return `<tr>
+    <td class="muted">${esc(l.created_at || '—')}</td>
+    <td>${l.username !== undefined ? esc(l.username) : ''}${l.room_name ? '<span class="muted"> / ' + esc(l.room_name) + '</span>' : ''}</td>
+    <td class="mono">${l.x}, ${l.y}<span class="copy-btn" title="复制坐标" onclick="copyCoord(${l.x}, ${l.y})">⧉</span></td>
+    <td>${colorCell}</td>
+    <td><span class="action-badge ${l.action === 'erase' ? 'erase' : 'place'}">${l.action === 'erase' ? '擦除' : '作画'}</span></td>
+  </tr>`;
+}
+
+// 全局画迹总览（可筛选）
+async function loadAllLogs(page) {
+  allLogsPage = Math.max(1, page);
+  const userId = document.getElementById('logFilterUser').value.trim();
+  const roomId = document.getElementById('logFilterRoom').value.trim();
+  const q = new URLSearchParams({ limit: LOG_PAGE_SIZE, offset: (allLogsPage - 1) * LOG_PAGE_SIZE });
+  if (userId) q.set('userId', userId);
+  if (roomId) q.set('roomId', roomId);
+  try {
+    const d = await api('GET', '/api/admin/logs?' + q.toString());
+    $('log-rows').innerHTML = d.logs.length
+      ? d.logs.map(logRowHtml).join('') : '<tr><td colspan="5" class="muted">暂无画迹</td></tr>';
+    $('log-count').textContent = d.total;
+    renderPager('logPrev', 'logNext', 'logPageInfo', allLogsPage, d.total, 'loadAllLogs');
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 单用户画迹弹窗
+async function openUserLogs(userId, username) {
+  userLogUserId = userId;
+  userLogPage = 1;
+  $('userLogTitle').textContent = `用户「${username}」的画迹`;
+  $('userLogModal').classList.remove('hidden');
+  await loadUserLogs(1);
+}
+function closeUserLogs() { $('userLogModal').classList.add('hidden'); }
+
+async function loadUserLogs(page) {
+  if (userLogUserId == null) return;
+  userLogPage = Math.max(1, page);
+  const q = new URLSearchParams({ limit: LOG_PAGE_SIZE, offset: (userLogPage - 1) * LOG_PAGE_SIZE });
+  try {
+    const d = await api('GET', `/api/admin/users/${userLogUserId}/logs?` + q.toString());
+    $('userLogRows').innerHTML = d.logs.length
+      ? d.logs.map(logRowHtml).join('') : '<tr><td colspan="5" class="muted">该用户暂无画迹</td></tr>';
+    renderPager('uLogPrev', 'uLogNext', 'userLogPageInfo', userLogPage, d.total, 'loadUserLogs');
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+function renderPager(prevId, nextId, infoId, page, total, fn) {
+  const pages = Math.max(1, Math.ceil(total / LOG_PAGE_SIZE));
+  document.getElementById(prevId).disabled = page <= 1;
+  document.getElementById(nextId).disabled = page >= pages;
+  document.getElementById(infoId).textContent =
+    `第 ${page} / ${pages} 页 · 共 ${total} 条`;
+}
+
+function copyCoord(x, y) {
+  const t = `${x}, ${y}`;
+  if (navigator.clipboard) { navigator.clipboard.writeText(t).then(() => flash('dash-msg', '已复制坐标 ' + t, true)).catch(() => {}); }
+  else flash('dash-msg', t, true);
+}
+
+async function loadRooms() {
+  const d = await api('GET', '/api/admin/rooms');
+  $('room-count').textContent = d.rooms.length;
+  $('room-rows').innerHTML = d.rooms.map((r) => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${esc(r.name)}</td>
+      <td>${r.isPublic ? '<span class="tag pub">公共</span>' : '<span class="tag priv">私有</span>'}</td>
+      <td class="pwd mono">${r.password ? esc(r.password) : '<span class="muted">无</span>'}</td>
+      <td>${esc(r.owner || '—')}</td>
+      <td>${r.pixelCount}</td>
+      <td>${r.online}</td>
+      <td class="muted">${esc(r.createdAt || '—')}</td>
+      <td>
+        <div class="actions">
+          <button class="sm" onclick="clearRoom(${r.id})">清空画布</button>
+          <button class="sm" onclick="setPwd(${r.id})">改密码</button>
+          ${r.isPublic ? '<span class="muted">不可删</span>' : `<button class="sm danger" onclick="delRoom(${r.id})">删除</button>`}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+async function clearRoom(id) {
+  if (!confirm('确认清空该房间全部像素？此操作不可恢复。')) return;
+  try { await api('POST', `/api/admin/rooms/${id}/clear`); flash('dash-msg', '画布已清空', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function setPwd(id) {
+  const pwd = prompt('设置房间密码（留空表示取消密码）：');
+  if (pwd === null) return;
+  try { await api('POST', `/api/admin/rooms/${id}/password`, { password: pwd }); flash('dash-msg', '密码已更新', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function delRoom(id) {
+  if (!confirm('确认删除该房间？房间内像素将一并清除。')) return;
+  try { await api('DELETE', `/api/admin/rooms/${id}`); flash('dash-msg', '已删除房间', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+
+async function saveSettings() {
+  try {
+    const v = Math.trunc(Number($('regenInput').value));
+    const evr = $('evrInput').checked;
+    const d = await api('POST', '/api/admin/settings', { pointRegenSeconds: v, emailVerifyRequired: evr });
+    flash('dash-msg', `已保存（间隔 ${d.pointRegenSeconds}s，邮箱验证${d.emailVerifyRequired ? '开' : '关'}）`, true);
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 用户详情：查看 / 修改账号、密码、邮箱
+let _detailUserId = null;
+function openUserDetail(id) {
+  const u = (window._usersCache || []).find((x) => x.id === id);
+  if (!u) return;
+  _detailUserId = id;
+  $('udUser').value = u.username;
+  $('udPass').value = u.password;
+  $('udEmail').value = u.email || '';
+  $('udErr').textContent = '';
+  show('userDetailModal', true);
+}
+async function saveUserDetail() {
+  const username = $('udUser').value.trim();
+  const password = $('udPass').value;
+  const email = $('udEmail').value.trim();
+  $('udErr').textContent = '';
+  try {
+    const d = await api('PUT', `/api/admin/users/${_detailUserId}`, { username, password, email });
+    flash('dash-msg', `已保存：${d.user.username}`, true);
+    show('userDetailModal', false);
+    refreshAll();
+  } catch (e) { $('udErr').textContent = e.message; }
+}
+
+async function setUserPoints(id, cur, limit) {
+  const v = prompt('设置作画点数（当前 ' + cur + '，上限 ' + limit + '）', String(cur));
+  if (v === null) return;
+  try {
+    const d = await api('POST', `/api/admin/users/${id}/points`, { points: Number(v) });
+    flash('dash-msg', '点数已更新为 ' + d.points, true); refreshAll();
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+async function setUserCoins(id, cur) {
+  const v = prompt('设置涂鸦币数量（当前 ' + cur + '）', String(cur));
+  if (v === null) return;
+  const n = Math.max(0, Math.floor(Number(v)));
+  if (!Number.isFinite(n)) return;
+  try {
+    const d = await api('POST', `/api/admin/users/${id}/coins`, { coins: n });
+    flash('dash-msg', '涂鸦币已设置为 ' + d.coins, true); refreshAll();
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 自动校验登录态
+(async function init() {
+  if (!token) { show('login', true); return; }
+  try { await api('GET', '/api/admin/stats'); openDash(); }
+  catch { localStorage.removeItem('adminToken'); token = ''; show('login', true); }
+})();
+</script>
+</body>
+</html>
