@@ -11,7 +11,7 @@ PixelVerse‑Wplace 是一款模仿 Wplace / Reddit r/place 的多人在线像�
 - 📦 开箱即用，少量依赖，快速搭建私有涂鸦画布
 
 ## 🛠️ 环境要求
-- Node.js >= 14.x
+- Node.js 推荐 v20.20.2
 - npm 包管理器
 
 ## 📥 安装部署
