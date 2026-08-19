@@ -173,8 +173,28 @@ async function initDB() {
   await ensureColumn('users', 'coins', 'coins INT NOT NULL DEFAULT 0');
   await ensureColumn('users', 'last_checkin', 'last_checkin DATE NULL');
   await ensureColumn('users', 'claimed_level', 'claimed_level INT NOT NULL DEFAULT 1');
+  // 临时涂鸦点（商店用 1 币兑 10 点，与正式点分开计数，优先消耗）
+  await ensureColumn('users', 'temp_points', 'temp_points INT NOT NULL DEFAULT 0');
+  // 开房卡（商店 1000 币兑 1 张，创建房间消耗 1 张）
+  await ensureColumn('users', 'room_cards', 'room_cards INT NOT NULL DEFAULT 0');
   // 邮箱（注册验证用；开关关闭时可空）
   await ensureColumn('users', 'email', 'email VARCHAR(255) NULL');
+
+  // ---- 房间玩法（房主自定义）----
+  await ensureColumn('rooms', 'free_drawing', 'free_drawing TINYINT NOT NULL DEFAULT 0');
+  await ensureColumn('rooms', 'point_regen_seconds', 'point_regen_seconds INT NULL');
+
+  // ---- 商店流水表 ----
+  await runSql(`CREATE TABLE IF NOT EXISTS shop_logs (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id     INT NOT NULL,
+    type        VARCHAR(16) NOT NULL,          -- 'limit' 兑换上限 / 'temp' 兑换临时点
+    coins_spent INT NOT NULL,
+    amount      INT NOT NULL,                  -- 兑换的数量：上限提升额度 或 临时点数
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_shop_user (user_id, id),
+    INDEX idx_shop_time (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
   // ---- 邮箱验证开关：默认开启 ----
   const evr = await get('SELECT value FROM settings WHERE `key` = ?', ['email_verify_required']);
@@ -236,28 +256,56 @@ const Q = {
   restorePoints: (count, id) =>
     run('UPDATE users SET points = LEAST(point_limit, points + ?) WHERE id = ?', [count, id]),
 
+  // ---- 商店 ----
+  // 原子扣 1 临时点（优先消耗临时点）；affectedRows=0 表示临时点用尽
+  spendTempPoint: (id) => run('UPDATE users SET temp_points = temp_points - 1 WHERE id = ? AND temp_points > 0', [id]),
+  // 原子扣涂鸦币（兑换扣费，并发安全）
+  spendCoins: (n, id) => run('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?', [n, id, n]),
+  // 永久提升点数上限（1 币 = 1 点）
+  addPointLimit: (n, id) => run('UPDATE users SET point_limit = point_limit + ? WHERE id = ?', [n, id]),
+  // 增加临时涂鸦点（1 币 = 10 点）
+  addTempPoints: (n, id) => run('UPDATE users SET temp_points = temp_points + ? WHERE id = ?', [n, id]),
+  insertShopLog: (userId, type, coinsSpent, amount) =>
+    run('INSERT INTO shop_logs (user_id, type, coins_spent, amount) VALUES (?, ?, ?, ?)',
+      [userId, type, coinsSpent, amount]),
+  // 商店流水（后台，分页；LIMIT 内联避免 ER_WRONG_ARGUMENTS）
+  listShopLogs: (limit, offset) => all(`
+    SELECT l.id, l.user_id, l.type, l.coins_spent, l.amount,
+           DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+           u.username
+    FROM shop_logs l LEFT JOIN users u ON u.id = l.user_id
+    ORDER BY l.id DESC LIMIT ${limit} OFFSET ${offset}`),
+  countShopLogs: () => get('SELECT COUNT(*) AS c FROM shop_logs'),
+
   // 等级系统：累计涂鸦 +1 并返回更新后的用户（MySQL 不支持 RETURNING，需两步）
   addPlaced: async (id) => {
     await run('UPDATE users SET total_placed = total_placed + 1 WHERE id = ?', [id]);
     return get('SELECT * FROM users WHERE id = ?', [id]);
   },
   // 升级：更新等级/点数上限，涂鸦币原子累加（仅当新等级更高；affectedRows=1 才是本次真正升级者）
-  upgrade: (id, level, limit, bonusCoins) => run(`
-    UPDATE users SET level = ?, point_limit = ?, coins = coins + ?
-    WHERE id = ? AND level < ?`, [level, limit, bonusCoins, id, level]),
-  // 签到：记录日期、加涂鸦币、加点数（不超过上限）
-  checkin: (id, date, coinBonus, pointBonus) => run(`
+  upgrade: (id, level, limit, bonusCoins, tempBonus) => run(`
+    UPDATE users SET level = ?, point_limit = ?, coins = coins + ?, temp_points = temp_points + ?
+    WHERE id = ? AND level < ?`, [level, limit, bonusCoins, tempBonus, id, level]),
+  // 签到：记录日期、加涂鸦币、加临时涂鸦点（不占正式点上限）
+  checkin: (id, date, coinBonus, tempBonus) => run(`
     UPDATE users SET last_checkin = ?, coins = coins + ?,
-      points = LEAST(point_limit, points + ?) WHERE id = ?`,
-    [date, coinBonus, pointBonus, id]),
+      temp_points = temp_points + ? WHERE id = ?`,
+    [date, coinBonus, tempBonus, id]),
   // 排行榜：涂鸦最多的前 N 名（LIMIT 为整数，内联避免 ER_WRONG_ARGUMENTS）
   leaderboard: (limit) => all(`
     SELECT username, total_placed, level, points, coins FROM users
     ORDER BY total_placed DESC, id ASC LIMIT ${limit}`),
 
   // 点数额度恢复：把未达上限的用户 +1（由定时任务批量调用）
-  regenPoints: () =>
-    run('UPDATE users SET points = LEAST(point_limit, points + 1) WHERE points < point_limit'),
+  // excluded 为 Set<userId>：自定义恢复间隔房间内的在线用户，由房间循环恢复，避免双重恢复
+  regenPoints: (excluded = null) =>
+    excluded && excluded.size
+      ? run(`UPDATE users SET points = LEAST(point_limit, points + 1)
+             WHERE points < point_limit AND id NOT IN (${[...excluded].join(',')})`)
+      : run('UPDATE users SET points = LEAST(point_limit, points + 1) WHERE points < point_limit'),
+  // 单用户恢复 1 点（房间自定义间隔循环用）
+  restoreOnePoint: (id) =>
+    run('UPDATE users SET points = LEAST(point_limit, points + 1) WHERE id = ? AND points < point_limit', [id]),
 
   // settings
   getSetting: (k) => get('SELECT value FROM settings WHERE `key` = ?', [k]),
@@ -270,25 +318,44 @@ const Q = {
            DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
            CASE WHEN r.password = '' THEN 0 ELSE 1 END AS has_password,
            (SELECT username FROM users u WHERE u.id = r.owner_id) AS owner,
-           (SELECT COUNT(*) FROM pixels p WHERE p.room_id = r.id) AS pixel_count
+           (SELECT COUNT(*) FROM pixels p WHERE p.room_id = r.id) AS pixel_count,
+           r.free_drawing, r.point_regen_seconds
     FROM rooms r ORDER BY r.is_public DESC, r.id ASC`),
   listRoomsAdminView: () => all(`
     SELECT r.id, r.name, r.password, r.is_public,
            DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, r.owner_id,
            (SELECT username FROM users u WHERE u.id = r.owner_id) AS owner,
-           (SELECT COUNT(*) FROM pixels p WHERE p.room_id = r.id) AS pixel_count
+           (SELECT COUNT(*) FROM pixels p WHERE p.room_id = r.id) AS pixel_count,
+           r.free_drawing, r.point_regen_seconds
     FROM rooms r ORDER BY r.is_public DESC, r.id ASC`),
   findRoomById: (id) => get('SELECT * FROM rooms WHERE id = ?', [id]),
   findRoomByName: (name) => get('SELECT * FROM rooms WHERE name = ?', [name]),
   publicRoom: () => get('SELECT * FROM rooms WHERE is_public = 1 LIMIT 1'),
   createRoom: (name, password, ownerId) =>
     run('INSERT INTO rooms (name, password, owner_id) VALUES (?, ?, ?)', [name, password, ownerId]),
+  // 更新房间玩法（仅房主/管理员）：freeDrawing 免点；pointRegenSeconds 为 null 表示跟随全局
+  updateRoomSettings: (id, freeDrawing, pointRegenSeconds) =>
+    run('UPDATE rooms SET free_drawing = ?, point_regen_seconds = ? WHERE id = ?',
+      [freeDrawing ? 1 : 0, pointRegenSeconds == null ? null : pointRegenSeconds, id]),
+  // 原子消耗 1 张开房卡（affectedRows=0 表示卡不足）
+  spendRoomCard: (id) => run('UPDATE users SET room_cards = room_cards - 1 WHERE id = ? AND room_cards > 0', [id]),
+  // 增加开房卡（商店兑换）
+  addRoomCards: (n, id) => run('UPDATE users SET room_cards = room_cards + ? WHERE id = ?', [n, id]),
   deleteRoom: (id) => run('DELETE FROM rooms WHERE id = ? AND is_public = 0', [id]),
   countUserRooms: (id) => get('SELECT COUNT(*) AS c FROM rooms WHERE owner_id = ?', [id]),
   updateRoomPassword: (password, id) => run('UPDATE rooms SET password = ? WHERE id = ?', [password, id]),
 
   // pixels
   pixelsOfRoom: (roomId) => all('SELECT x, y, color FROM pixels WHERE room_id = ?', [roomId]),
+  // 游标分页取像素（按 x,y 排序走主键索引，避免大房间一次性全量加载）
+  // lastX/lastY 为 null 表示第一页；返回下一页按 (x,y) 严格大于游标的像素。LIMIT 为整数内联（避免 ER_WRONG_ARGUMENTS）
+  pixelsChunk: (roomId, lastX, lastY, limit) =>
+    lastX == null
+      ? all('SELECT x, y, color FROM pixels WHERE room_id = ? ORDER BY x, y LIMIT ' + limit, [roomId])
+      : all(`SELECT x, y, color FROM pixels
+             WHERE room_id = ? AND (x > ? OR (x = ? AND y > ?))
+             ORDER BY x, y LIMIT ${limit}`, [roomId, lastX, lastX, lastY]),
+  countPixels: (roomId) => get('SELECT COUNT(*) AS c FROM pixels WHERE room_id = ?', [roomId]),
   getPixel: (roomId, x, y) => get('SELECT color FROM pixels WHERE room_id = ? AND x = ? AND y = ?', [roomId, x, y]),
   upsertPixel: (roomId, x, y, color, userId) =>
     run(`INSERT INTO pixels (room_id, x, y, color, user_id, updated_at)

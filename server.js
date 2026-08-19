@@ -89,6 +89,7 @@ function isToday(d) {
 function safeUser(u) {
   return {
     id: u.id, username: u.username, points: u.points, pointLimit: u.point_limit,
+    tempPoints: u.temp_points || 0, roomCards: u.room_cards || 0,
     isAdmin: !!u.is_admin, level: u.level || 1, coins: u.coins || 0,
     totalPlaced: u.total_placed || 0, checkedToday: isToday(u.last_checkin),
   };
@@ -216,13 +217,14 @@ app.post('/api/checkin', authUser, async (req, res) => {
     }
   }
   const coinBonus = 20 + Math.floor(Math.random() * 31);   // 20~50
-  const pointBonus = 20 + Math.floor(Math.random() * 11);  // 20~30
+  const tempBonus = 20 + Math.floor(Math.random() * 11);  // 20~30 临时涂鸦点
   const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-  await Q.checkin(u.id, today, coinBonus, pointBonus);
+  await Q.checkin(u.id, today, coinBonus, tempBonus);
   const nu = await Q.findUserById(u.id);
   ok(res, {
-    coins: coinBonus, points: pointBonus,
+    coins: coinBonus, tempPoints: tempBonus,
     totalCoins: nu.coins, pointsNow: nu.points, limit: nu.point_limit,
+    tempPointsNow: nu.temp_points || 0,
   });
 });
 
@@ -246,8 +248,14 @@ app.post('/api/preview-place', authUser, async (req, res) => {
   if (Math.abs(x) > WORLD_LIMIT || Math.abs(y) > WORLD_LIMIT) return fail(res, 400, '超出画布范围');
   if (!HEX_RE.test(color)) return fail(res, 400, '颜色无效');
 
-  const spent = await Q.spendPoint(req.user.id);
-  if (spent.changes === 0) return fail(res, 400, '作画点数不足，请等待恢复');
+  // 免点房间不扣点；否则优先扣正式涂鸦点，正式点不足再扣临时涂鸦点
+  if (!room.free_drawing) {
+    let spent = await Q.spendPoint(req.user.id);
+    if (spent.changes === 0) {
+      spent = await Q.spendTempPoint(req.user.id);
+      if (spent.changes === 0) return fail(res, 400, '作画点数不足，请等待恢复');
+    }
+  }
 
   // 累计涂鸦 + 升级判定（与正式 place 一致）
   const up = await Q.addPlaced(req.user.id);
@@ -257,15 +265,17 @@ app.post('/api/preview-place', authUser, async (req, res) => {
     const bonusSum = LEVELS
       .filter((L) => L.level > up.level && L.level <= nlv.level)
       .reduce((s, L) => s + L.coins, 0);
-    const r = await Q.upgrade(req.user.id, nlv.level, nlv.limit, bonusSum);
+    const tempBonus = 30 + Math.floor(Math.random() * 21);   // 30~50 临时涂鸦点
+    const r = await Q.upgrade(req.user.id, nlv.level, nlv.limit, bonusSum, tempBonus);
     if (r.changes > 0) {
       const fresh = await Q.findUserById(req.user.id);
-      levelUp = { level: nlv.level, limit: nlv.limit, bonus: bonusSum, coins: fresh.coins };
+      levelUp = { level: nlv.level, limit: nlv.limit, bonus: bonusSum, tempBonus, coins: fresh.coins };
       up.level = nlv.level; up.coins = fresh.coins; up.point_limit = nlv.limit;
+      up.temp_points = fresh.temp_points;   // 响应里的临时点需含升级奖励
     }
   }
   ok(res, {
-    points: up.points, limit: up.point_limit,
+    points: up.points, limit: up.point_limit, tempPoints: up.temp_points || 0,
     level: up.level || 1, coins: up.coins || 0, totalPlaced: up.total_placed || 0,
     levelUp,
   });
@@ -279,6 +289,57 @@ app.post('/api/preview-restore', authUser, async (req, res) => {
   await Q.restorePoints(count, req.user.id);
   const u = await Q.findUserById(req.user.id);
   ok(res, { points: u.points, limit: u.point_limit });
+});
+
+// ---------------- 商店（涂鸦币兑换） ----------------
+// 兑换永久点数上限：1 币 = 1 点（原子扣币 + 加上限 + 记流水）
+app.post('/api/shop/buy-limit', authUser, async (req, res) => {
+  let n = Math.trunc(Number(req.body?.amount));
+  if (!Number.isFinite(n) || n < 1) return fail(res, 400, '兑换数量需为不小于 1 的整数');
+  n = Math.min(n, 500);
+  const user = await Q.findUserById(req.user.id);
+  if (!user) return fail(res, 404, '用户不存在');
+  if ((user.coins || 0) < n) return fail(res, 400, '涂鸦币不足');
+  const spent = await Q.spendCoins(n, user.id);
+  if (spent.changes === 0) return fail(res, 400, '涂鸦币不足');
+  await Q.addPointLimit(n, user.id);
+  await Q.insertShopLog(user.id, 'limit', n, n);
+  const nu = await Q.findUserById(user.id);
+  ok(res, { user: safeUser(nu), message: `点数上限已提升 ${n} 点，当前上限 ${nu.point_limit}` });
+});
+
+// 兑换临时涂鸦点：1 币 = 10 点（与正式点分开计数，优先消耗）
+app.post('/api/shop/buy-temp', authUser, async (req, res) => {
+  let n = Math.trunc(Number(req.body?.points));
+  if (!Number.isFinite(n) || n < 10 || n % 10 !== 0) return fail(res, 400, '临时点数需为 10 的倍数（至少 10）');
+  n = Math.min(n, 2000);
+  const cost = n / 10;
+  const user = await Q.findUserById(req.user.id);
+  if (!user) return fail(res, 404, '用户不存在');
+  if ((user.coins || 0) < cost) return fail(res, 400, '涂鸦币不足');
+  const spent = await Q.spendCoins(cost, user.id);
+  if (spent.changes === 0) return fail(res, 400, '涂鸦币不足');
+  await Q.addTempPoints(n, user.id);
+  await Q.insertShopLog(user.id, 'temp', cost, n);
+  const nu = await Q.findUserById(user.id);
+  ok(res, { user: safeUser(nu), message: `已兑换 ${n} 临时涂鸦点，花费 ${cost} 涂鸦币` });
+});
+
+// 兑换开房卡：1000 币 = 1 张（创建房间消耗 1 张）
+app.post('/api/shop/buy-card', authUser, async (req, res) => {
+  let n = Math.trunc(Number(req.body?.cards));
+  if (!Number.isFinite(n) || n < 1) return fail(res, 400, '兑换数量需为不小于 1 的整数');
+  n = Math.min(n, 50);
+  const cost = n * 1000;
+  const user = await Q.findUserById(req.user.id);
+  if (!user) return fail(res, 404, '用户不存在');
+  if ((user.coins || 0) < cost) return fail(res, 400, `涂鸦币不足，兑换 ${n} 张开房卡需要 ${cost} 币`);
+  const spent = await Q.spendCoins(cost, user.id);
+  if (spent.changes === 0) return fail(res, 400, '涂鸦币不足');
+  await Q.addRoomCards(n, user.id);
+  await Q.insertShopLog(user.id, 'card', cost, n);
+  const nu = await Q.findUserById(user.id);
+  ok(res, { user: safeUser(nu), message: `已兑换 ${n} 张开房卡，花费 ${cost} 涂鸦币` });
 });
 
 // 预览上传：批量落库 + 画迹日志 + 广播；不重复扣点/累计（预览时已处理）
@@ -330,10 +391,95 @@ app.post('/api/rooms', authUser, async (req, res) => {
   if (cnt.c >= MAX_ROOMS_PER_USER) {
     return fail(res, 429, `每个账号最多创建 ${MAX_ROOMS_PER_USER} 个房间`);
   }
+  // 创建房间消耗 1 张开房卡（原子扣，失败表示卡不足）
+  const card = await Q.spendRoomCard(req.user.id);
+  if (card.changes === 0) {
+    return fail(res, 402, '创建房间需要 1 张开房卡（商店 1000 涂鸦币兑换 1 张）');
+  }
   const info = await Q.createRoom(name, password, req.user.id);
   const room = await Q.findRoomById(info.lastInsertRowid);
   ok(res, {
     room: { id: room.id, name: room.name, isPublic: false, hasPassword: password !== '' },
+    user: safeUser(await Q.findUserById(req.user.id)),
+  });
+});
+
+// 房主自定义房间玩法：免点涂鸦 / 自定义点数恢复间隔
+app.put('/api/rooms/:id/settings', authUser, async (req, res) => {
+  const room = await Q.findRoomById(Number(req.params.id));
+  if (!room) return fail(res, 404, '房间不存在');
+  if (room.is_public) return fail(res, 403, '公共房间不可设置玩法');
+  if (room.owner_id !== req.user.id && !req.user.is_admin) return fail(res, 403, '只有房主可以设置房间玩法');
+  const freeDrawing = !!req.body?.freeDrawing;
+  let regen = req.body?.pointRegenSeconds;
+  if (regen !== undefined && regen !== null && regen !== '') {
+    regen = Math.trunc(Number(regen));
+    if (!Number.isFinite(regen) || regen < 1 || regen > 86400) return fail(res, 400, '恢复间隔需为 1-86400 秒');
+  } else {
+    regen = null; // 跟随全局
+  }
+  await Q.updateRoomSettings(room.id, freeDrawing, regen);
+  const updated = await Q.findRoomById(room.id);
+  // 同步房间级状态：ws 缓存 + 自定义恢复登记 + 通知房间内玩家
+  syncCustomRoom(updated);
+  const set = roomClients.get(room.id);
+  if (set) {
+    for (const c of set) {
+      c.roomFree = !!updated.free_drawing;
+      c.roomRegen = updated.point_regen_seconds == null ? null : updated.point_regen_seconds;
+    }
+    broadcast(room.id, {
+      type: 'room_settings',
+      room: {
+        id: updated.id, freeDrawing: !!updated.free_drawing,
+        pointRegenSeconds: updated.point_regen_seconds == null ? null : updated.point_regen_seconds,
+      },
+    });
+  }
+  ok(res, {
+    room: {
+      id: updated.id, name: updated.name, isPublic: false,
+      freeDrawing: !!updated.free_drawing,
+      pointRegenSeconds: updated.point_regen_seconds == null ? null : updated.point_regen_seconds,
+    },
+  });
+});
+
+// 管理员后台：设置房间玩法（免点涂鸦 / 自定义恢复间隔）
+app.post('/api/admin/rooms/:id/settings', authAdmin, async (req, res) => {
+  const room = await Q.findRoomById(Number(req.params.id));
+  if (!room) return fail(res, 404, '房间不存在');
+  const freeDrawing = !!req.body?.freeDrawing;
+  let regen = req.body?.pointRegenSeconds;
+  if (regen !== undefined && regen !== null && regen !== '') {
+    regen = Math.trunc(Number(regen));
+    if (!Number.isFinite(regen) || regen < 1 || regen > 86400) return fail(res, 400, '恢复间隔需为 1-86400 秒');
+  } else {
+    regen = null;
+  }
+  await Q.updateRoomSettings(room.id, freeDrawing, regen);
+  const updated = await Q.findRoomById(room.id);
+  syncCustomRoom(updated);
+  const set = roomClients.get(room.id);
+  if (set) {
+    for (const c of set) {
+      c.roomFree = !!updated.free_drawing;
+      c.roomRegen = updated.point_regen_seconds == null ? null : updated.point_regen_seconds;
+    }
+    broadcast(room.id, {
+      type: 'room_settings',
+      room: {
+        id: updated.id, freeDrawing: !!updated.free_drawing,
+        pointRegenSeconds: updated.point_regen_seconds == null ? null : updated.point_regen_seconds,
+      },
+    });
+  }
+  ok(res, {
+    room: {
+      id: updated.id, name: updated.name, isPublic: false,
+      freeDrawing: !!updated.free_drawing,
+      pointRegenSeconds: updated.point_regen_seconds == null ? null : updated.point_regen_seconds,
+    },
   });
 });
 
@@ -466,6 +612,8 @@ app.get('/api/admin/rooms', authAdmin, async (req, res) => {
     pixelCount: r.pixel_count,
     online: (roomClients.get(r.id)?.size) || 0,
     createdAt: r.created_at,
+    freeDrawing: !!r.free_drawing,
+    pointRegenSeconds: r.point_regen_seconds == null ? null : r.point_regen_seconds,
   }));
   ok(res, { rooms });
 });
@@ -567,9 +715,23 @@ app.get('/api/admin/logs', authAdmin, async (req, res) => {
   ok(res, { logs, total: rows[0].c });
 });
 
+// 商店流水（后台，分页）：用户 id、花费涂鸦币、兑换类型与数量
+app.get('/api/admin/shop-logs', authAdmin, async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const logs = await Q.listShopLogs(limit, offset);
+  const { c } = await Q.countShopLogs();
+  ok(res, { logs, total: c });
+});
+
 // ---------------- WebSocket ----------------
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  // 大房间像素消息压缩（>1KB 才压缩，避免小消息开销）
+  perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 6 } },
+});
 
 /** roomId -> Set<ws> */
 const roomClients = new Map();
@@ -603,12 +765,30 @@ function roomPresence(roomId) {
   broadcast(roomId, { type: 'presence', count: set.size, users: names.slice(0, 50) });
 }
 
+/** roomId -> 恢复间隔秒数（仅含自定义了恢复间隔的房间）；roomId -> 上次恢复时间 */
+const customRooms = new Map();
+const roomLastRegen = new Map();
+
+function syncCustomRoom(room) {
+  if (room.point_regen_seconds != null) {
+    customRooms.set(room.id, room.point_regen_seconds);
+    if (!roomLastRegen.has(room.id)) roomLastRegen.set(room.id, Date.now());
+  } else {
+    customRooms.delete(room.id);
+    roomLastRegen.delete(room.id);
+  }
+}
+
 function leaveRoom(ws) {
   if (ws.roomId == null) return;
   const set = roomClients.get(ws.roomId);
   if (set) {
     set.delete(ws);
-    if (set.size === 0) roomClients.delete(ws.roomId);
+    if (set.size === 0) {
+      roomClients.delete(ws.roomId);
+      if (customRooms.has(ws.roomId)) customRooms.delete(ws.roomId);
+      roomLastRegen.delete(ws.roomId);
+    }
   }
   const rid = ws.roomId;
   ws.roomId = null;
@@ -689,22 +869,41 @@ wss.on('connection', (ws) => {
 
         leaveRoom(ws);
         ws.roomId = room.id;
+        ws.roomFree = !!room.free_drawing;
+        ws.roomRegen = room.point_regen_seconds == null ? null : room.point_regen_seconds;
+        syncCustomRoom(room);
         if (!roomClients.has(room.id)) roomClients.set(room.id, new Set());
         roomClients.get(room.id).add(ws);
 
-        const pixels = await Q.pixelsOfRoom(room.id);
+        // 分块发送房间像素：先发房间信息让 UI 立即就绪，再按 (x,y) 游标分批推送，
+        // 避免大房间一次性全量查询 + 巨型消息阻塞（内存/序列化/网络/前端解析）。
+        const pixelTotal = (await Q.countPixels(room.id)).c || 0;
         send(ws, {
           type: 'joined',
+          pixels: [],   // 兼容旧版客户端（其不再从本字段初始化画布；新版走 pixels_chunk）
           room: {
             id: room.id,
             name: room.name,
             isPublic: !!room.is_public,
             hasPassword: room.password !== '',
             isOwner: ws.userId != null && room.owner_id === ws.userId,
+            freeDrawing: !!room.free_drawing,
+            pointRegenSeconds: room.point_regen_seconds == null ? null : room.point_regen_seconds,
           },
-          pixels,
+          pixelTotal,
           user: user ? safeUser(user) : null,
         });
+        const CHUNK = 3000;
+        let lastX = null, lastY = null;
+        while (true) {
+          const chunk = await Q.pixelsChunk(room.id, lastX, lastY, CHUNK);
+          if (!chunk.length) break;
+          send(ws, { type: 'pixels_chunk', chunk });
+          if (chunk.length < CHUNK) break;
+          lastX = chunk[chunk.length - 1].x;
+          lastY = chunk[chunk.length - 1].y;
+        }
+        send(ws, { type: 'pixels_done', total: pixelTotal });
         roomPresence(room.id);
         break;
       }
@@ -730,9 +929,11 @@ wss.on('connection', (ws) => {
           return send(ws, { type: 'kicked', reason: '房间已不存在' });
         }
 
-        // 点数额度：仅「作画」消耗，擦除不消耗。原子扣点（并发安全），失败则拒绝并回滚乐观更新
-        if (!erase) {
-          const spent = await Q.spendPoint(ws.userId);
+        // 点数额度：仅「作画」消耗，擦除不消耗。免点房间（freeDrawing）不扣任何点数；
+        // 其余房间优先消耗正式涂鸦点，正式点不足再扣临时涂鸦点（原子扣减，失败则拒绝并回滚乐观更新）
+        if (!erase && !ws.roomFree) {
+          let spent = await Q.spendPoint(ws.userId);
+          if (spent.changes === 0) spent = await Q.spendTempPoint(ws.userId);
           if (spent.changes === 0) {
             const real = await Q.getPixel(ws.roomId, x, y);
             send(ws, { type: 'pixel', x, y, color: real ? real.color : null });
@@ -769,7 +970,7 @@ wss.on('connection', (ws) => {
           await Q.insertPixelLog(ws.userId, ws.roomId, x, y, color, 'place');
           broadcast(ws.roomId, { type: 'pixel', x, y, color, by: ws.username });
 
-          // 累计涂鸦 + 等级判定（逐格累计，跨阈值即升级并赠送涂鸦币）
+          // 累计涂鸦 + 等级判定（逐格累计，跨阈值即升级并赠送涂鸦币 + 临时涂鸦点）
           const up = await Q.addPlaced(ws.userId);
           const nlv = levelFor(up.total_placed);
           if (nlv.level > up.level) {
@@ -777,14 +978,16 @@ wss.on('connection', (ws) => {
             const bonusSum = LEVELS
               .filter((L) => L.level > up.level && L.level <= nlv.level)
               .reduce((s, L) => s + L.coins, 0);
-            const r = await Q.upgrade(ws.userId, nlv.level, nlv.limit, bonusSum);
+            const tempBonus = 30 + Math.floor(Math.random() * 21);   // 30~50 临时涂鸦点
+            const r = await Q.upgrade(ws.userId, nlv.level, nlv.limit, bonusSum, tempBonus);
             if (r.changes > 0) {   // 只有真正升级的那一次发消息（原子判定，杜绝重复）
               const fresh = await Q.findUserById(ws.userId);
               send(ws, {
                 type: 'level_up', level: nlv.level, limit: nlv.limit,
-                coins: fresh.coins, bonus: bonusSum, total: up.total_placed,
+                coins: fresh.coins, bonus: bonusSum, tempBonus, total: up.total_placed,
               });
               up.level = nlv.level; up.coins = fresh.coins; up.point_limit = nlv.limit;
+              up.temp_points = fresh.temp_points;   // 后续 points 推送需含升级奖励
             }
           }
           // 点数/等级合并推送，避免每格一条消息
@@ -792,6 +995,7 @@ wss.on('connection', (ws) => {
             ws.lastPointsAt = now;
             send(ws, {
               type: 'points', points: up.points, limit: up.point_limit,
+              tempPoints: up.temp_points || 0,
               level: up.level || 1, coins: up.coins || 0, totalPlaced: up.total_placed || 0,
             });
           }
@@ -837,20 +1041,42 @@ const heartbeat = setInterval(() => {
 }, 30000);
 wss.on('close', () => clearInterval(heartbeat));
 
-// 点数额度恢复：每秒检查是否到达恢复间隔，是则给未达上限的用户 +1 并推送在线用户。
-// 后台修改间隔立即生效（下次秒判定即用新值），最多 1 秒延迟。
+// 点数额度恢复：每秒检查。全局按 settings 间隔恢复未达上限用户；
+// 自定义了恢复间隔的房间按各自间隔恢复房间内在线用户（这些用户跳过全局恢复，避免双重恢复）。
 let lastRegen = Date.now();
 async function regenLoop() {
   setTimeout(async () => {
     try {
+      // ---- 全局恢复 ----
       const row = await Q.getSetting('point_regen_seconds');
       const secs = Number(row?.value || 30);
       if (Date.now() - lastRegen >= Math.max(1, secs) * 1000) {
         lastRegen = Date.now();
-        await Q.regenPoints();
+        const excluded = new Set();
+        for (const rid of customRooms.keys()) {
+          const set = roomClients.get(rid);
+          if (set) for (const c of set) if (c.userId) excluded.add(c.userId);
+        }
+        await Q.regenPoints(excluded);
         for (const set of roomClients.values()) {
           for (const c of set) {
-            if (c.userId) {
+            if (c.userId && !excluded.has(c.userId)) {
+              const u = await Q.findUserById(c.userId);
+              if (u) send(c, { type: 'points', points: u.points, limit: u.point_limit });
+            }
+          }
+        }
+      }
+      // ---- 房间自定义恢复 ----
+      for (const [rid, secs] of customRooms) {
+        const last = roomLastRegen.get(rid) || Date.now();
+        if (Date.now() - last >= Math.max(1, secs) * 1000) {
+          roomLastRegen.set(rid, Date.now());
+          const set = roomClients.get(rid);
+          if (set) {
+            for (const c of set) {
+              if (!c.userId) continue;
+              await Q.restoreOnePoint(c.userId);
               const u = await Q.findUserById(c.userId);
               if (u) send(c, { type: 'points', points: u.points, limit: u.point_limit });
             }
