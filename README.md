@@ -40,12 +40,18 @@ node server.js
 
 ## 📁 项目结构
 ```
-├── server.js          # 后端主服务，websocket实时通信
-├── db.js              # 画布数据持久化
-├── package.json       # 项目依赖配置
-├── ecosystem.config.js # pm2部署配置
-├── deploy.sh          # 一键部署脚本
-└── deploy‑baota.md     # 宝塔部署教程
+PixelVerse---Wplace‑
+├─ public/     #前端文件
+│  ├─ admin.html
+│  ├─ index.html
+│  ├─ app.js
+│  ├─ style.css
+│  └─ world.js
+├─ LICENSE
+├─ README.md
+├─ db.js
+├─ server.js
+└─ 其他部署文档
 ```
 
 ## 🚀 服务器部署
