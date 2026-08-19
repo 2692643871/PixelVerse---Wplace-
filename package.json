@@ -1,0 +1,16 @@
+{
+  "name": "pixel-canvas",
+  "version": "1.0.0",
+  "description": "多人在线无限像素画布（MySQL 版）",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.11.0",
+    "nodemailer": "^9.0.5",
+    "ws": "^8.18.0"
+  }
+}
