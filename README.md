@@ -3,6 +3,9 @@
 
 ![项目演示截图](PixPin_2026-08-19_21-30-53.png)
 > 此图为测试图，具体以实际为准。
+## 演示地址
+http://pixel.qlive.top
+小主机 请不要压测QWQ
 
 ## 📖 项目介绍
 PixelVerse‑Wplace 是一款模仿 Wplace / Reddit r/place 的多人在线像素画布项目。
