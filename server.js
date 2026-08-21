@@ -15,8 +15,8 @@ const MAX_ROOMS_PER_USER = 5;
 
 // ---------- 邮箱验证（QQ 邮箱发信） ----------
 // 默认使用用户提供的 QQ 邮箱与授权码；生产环境请通过 .env 覆盖 EMAIL_USER / EMAIL_PASS
-const EMAIL_USER = process.env.EMAIL_USER || '2056242081@qq.com';
-const EMAIL_PASS = process.env.EMAIL_PASS || 'cqkjqcrupkuzfdfa';
+const EMAIL_USER = process.env.EMAIL_USER || '这里改成你的邮箱账号';
+const EMAIL_PASS = process.env.EMAIL_PASS || '这里改成你的QQ游戏授权码';
 const mailer = nodemailer.createTransport({
   host: 'smtp.qq.com',
   port: 465,
