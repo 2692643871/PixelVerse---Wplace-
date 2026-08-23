@@ -1,9 +1,24 @@
-
 <div align="center">
 
-**Language / 语言:** [🇺🇸 English](README_EN.md) · [🇨🇳 中文](README.md)
+**Language / 语言:**
+
+[![English](https://img.shields.io/badge/English%20Docs-README-blue?style=for-the-badge&logo=readthedocs)](README_EN.md)
+[![中文](https://img.shields.io/badge/中文文档-README-red?style=for-the-badge&logo=readthedocs)](README.md)
 
 </div>
+
+<p align="center">
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-"><img src="https://img.shields.io/github/stars/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Stars"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/network/members"><img src="https://img.shields.io/github/forks/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Forks"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/releases"><img src="https://img.shields.io/github/downloads/2692643871/PixelVerse---Wplace-/total?style=for-the-badge&logo=github" alt="Downloads"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/pulls"><img src="https://img.shields.io/github/issues-pr/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Pull Requests"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/last-commit/2692643871/PixelVerse---Wplace-?style=flat-square" alt="Last Commit">
+  <img src="https://img.shields.io/github/license/2692643871/PixelVerse---Wplace-?style=flat-square" alt="License">
+  <img src="https://img.shields.io/github/issues/2692643871/PixelVerse---Wplace-?style=flat-square" alt="Issues">
+</p>
 
 # PixelVerse‑Wplace
 
