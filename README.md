@@ -6,6 +6,19 @@
 
 </div>
 
+<p align="center">
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-"><img src="https://img.shields.io/github/stars/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Stars"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/network/members"><img src="https://img.shields.io/github/forks/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Forks"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/releases"><img src="https://img.shields.io/github/downloads/2692643871/PixelVerse---Wplace-/total?style=for-the-badge&logo=github" alt="Downloads"></a>
+  <a href="https://github.com/2692643871/PixelVerse---Wplace-/pulls"><img src="https://img.shields.io/github/issues-pr/2692643871/PixelVerse---Wplace-?style=for-the-badge&logo=github" alt="Pull Requests"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/last-commit/2692643871/PixelVerse---Wplace-?style=flat-square" alt="Last Commit">
+  <img src="https://img.shields.io/github/license/2692643871/PixelVerse---Wplace-?style=flat-square" alt="License">
+  <img src="https://img.shields.io/github/issues/2692643871/PixelVerse---Wplace-?style=flat-square" alt="Issues">
+</p>
+
 > 仿 w-place 多人在线像素涂鸦网页程序，复刻大规模集体画布涂鸦玩法，支持多人实时共同绘制像素，全部代码由 AI 开发。
 
 ![项目演示截图](PixPin_2026-08-23_22-43-12.png)
