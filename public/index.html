@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>PixelVerse · 多人无限像素画布</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ 登录 / 注册 ============ -->
+<div id="authScreen" class="screen">
+  <div class="auth-card">
+    <div class="logo">
+      <svg viewBox="0 0 48 48" width="52" height="52" aria-hidden="true">
+        <rect x="4"  y="4"  width="12" height="12" fill="#ef4444"/>
+        <rect x="18" y="4"  width="12" height="12" fill="#f59e0b"/>
+        <rect x="32" y="4"  width="12" height="12" fill="#10b981"/>
+        <rect x="4"  y="18" width="12" height="12" fill="#3b82f6"/>
+        <rect x="18" y="18" width="12" height="12" fill="#8b5cf6"/>
+        <rect x="32" y="18" width="12" height="12" fill="#ec4899"/>
+        <rect x="4"  y="32" width="12" height="12" fill="#14b8a6"/>
+        <rect x="18" y="32" width="12" height="12" fill="#64748b"/>
+        <rect x="32" y="32" width="12" height="12" fill="#1e293b"/>
+      </svg>
+      <h1>PixelVerse</h1>
+      <p class="sub">多人在线 · 无限画布 · 像素共创</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="login">登录</button>
+      <button class="tab" data-tab="register">注册</button>
+    </div>
+
+    <form id="authForm" autocomplete="off">
+      <label>账号
+        <input id="authUser" type="text" placeholder="2-20 位，中英文/数字/下划线" maxlength="20" required>
+      </label>
+      <label>密码
+        <input id="authPass" type="password" placeholder="4-32 位" maxlength="32" required>
+      </label>
+      <label id="emailField" class="field-extra hidden">邮箱
+        <input id="authEmail" type="email" placeholder="用于接收注册验证码" maxlength="255">
+      </label>
+      <label id="codeField" class="field-extra hidden">邮箱验证码
+        <div class="code-row">
+          <input id="authCode" type="text" placeholder="6 位验证码" maxlength="6" inputmode="numeric">
+          <button id="btnSendCode" class="btn ghost" type="button">发送验证码</button>
+        </div>
+      </label>
+      <div id="authError" class="err"></div>
+      <button id="authSubmit" class="btn primary block" type="submit">进入画布</button>
+    </form>
+
+    <div class="auth-foot">
+      <a href="admin/index.html">管理员后台 →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="appScreen" class="screen hidden">
+
+  <canvas id="board"></canvas>
+
+  <!-- 顶部栏 -->
+  <header class="topbar">
+    <div class="tb-left">
+      <button id="btnRooms" class="icon-btn" title="房间列表">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="room-tag">
+        <span id="roomName">连接中…</span>
+        <span id="roomLock" class="lock hidden">🔒</span>
+      </div>
+    </div>
+    <div class="tb-right">
+      <button id="btnLoginTop" class="btn ghost sm hidden" title="登录后可涂鸦">
+        <svg viewBox="0 0 24 24" class="chip-ico" style="width:14px;height:14px"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-7 1.7-7 4v2h14v-2c0-2.3-3.7-4-7-4z"/></svg>
+        <span>登录</span>
+      </button>
+      <div class="chip" title="在线人数">
+        <span class="dot"></span><span id="onlineCount">0</span>
+      </div>
+      <div class="chip" title="我的作画点数">
+        <svg viewBox="0 0 24 24" class="chip-ico"><path d="M12 3l2.6 6.3 6.8.5-5.2 4.4 1.6 6.6L12 17.6 6.2 20.8l1.6-6.6L2.6 9.8l6.8-.5z"/></svg>
+        <span id="myPoints">0</span>
+      </div>
+      <div class="chip lv" title="等级">
+        <span>Lv.<b id="meLevel">1</b></span>
+      </div>
+      <div class="chip coins" title="涂鸦币">
+        <svg viewBox="0 0 24 24" class="chip-ico"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <b id="meCoins">0</b>
+      </div>
+      <button id="btnShop" class="chip-btn" title="商店 · 涂鸦币兑换">
+        <svg viewBox="0 0 24 24" class="chip-ico"><path d="M4 7h16l-1.5 13h-13L4 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>
+        <span>商店</span>
+      </button>
+      <button id="btnCheckin" class="chip-btn" title="每日签到（随机 20-50 涂鸦币 + 20-30 临时涂鸦点）">签到</button>
+      <button id="btnBoard" class="icon-btn" title="排行榜 · 涂鸦最多前 10">
+        <svg viewBox="0 0 24 24"><path d="M6 21h12M7 17h10l1-14H6z"/><path d="M12 3v14M12 3L9 6M12 3l3 3"/></svg>
+      </button>
+      <button id="btnMenu" class="icon-btn" title="更多">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+      </button>
+      <button id="btnMore" class="icon-btn more-btn" title="更多选项">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 更多下拉菜单（窄屏折叠次要信息，避免顶部溢出） -->
+  <div id="moreMenu" class="more-menu hidden">
+    <button id="btnLoginTopM" class="more-item hidden" title="登录后可涂鸦">
+      <span class="more-ico">👤</span><span>登录</span>
+    </button>
+    <div class="more-item more-static">
+      <span class="more-ico">⭐</span><span>等级 <b id="meLevelM">1</b></span>
+    </div>
+    <div class="more-item more-static">
+      <span class="more-ico">🪙</span><span>涂鸦币 <b id="meCoinsM">0</b></span>
+    </div>
+    <button id="btnShopM" class="more-item" title="商店 · 涂鸦币兑换">
+      <span class="more-ico">🛒</span><span>商店</span>
+    </button>
+    <button id="btnCheckinM" class="more-item" title="每日签到">签到</button>
+  </div>
+
+  <!-- 坐标 / 缩放 / 经纬度信息 -->
+  <div class="hud">
+    <span id="hudCoord">0, 0</span>
+    <span class="hud-sep"></span>
+    <span id="hudLonLat"></span>
+    <span class="hud-sep"></span>
+    <span id="hudZoom">100%</span>
+  </div>
+
+  <!-- 模式提示 -->
+  <div id="modeToast" class="mode-toast">拖动模式</div>
+
+  <!-- 临时涂鸦点：独立浮动 UI（与正式点分开显示，点击跳转商店补充） -->
+  <button id="tempHud" class="temp-hud hidden" title="临时涂鸦点（商店兑换，优先消耗）——点击前往商店">
+    <span class="temp-hud-ico">⏱</span>
+    <span class="temp-hud-num" id="tempHudNum">0</span>
+    <span class="temp-hud-label">临时点</span>
+  </button>
+
+  <!-- 底部工具栏 -->
+  <footer class="toolbar">
+    <div class="palette" id="palette"></div>
+
+    <div class="tools">
+      <button id="btnPan" class="tool active" title="拖动画布">
+        <svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>
+        <span>拖动</span>
+      </button>
+      <button id="btnDraw" class="tool primary-tool" title="作画（点击像素格上色）">
+        <svg viewBox="0 0 24 24"><path d="M3 21l3.5-1 11-11a2.5 2.5 0 10-3.5-3.5L3 16.5 3 21z"/><path d="M14 6l4 4"/></svg>
+        <span>作画</span>
+      </button>
+      <button id="btnErase" class="tool" title="擦除像素">
+        <svg viewBox="0 0 24 24"><path d="M4 16l7-7 7 7-4 4H8z"/><path d="M3 20h18"/></svg>
+        <span>擦除</span>
+      </button>
+      <button id="btnHome" class="tool" title="回到初始中心（北京 116.39°E 39.92°N）">
+        <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+        <span>中心</span>
+      </button>
+      <button id="btnWorld" class="tool" title="查看整个世界地图">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>
+        <span>世界</span>
+      </button>
+      <button id="btnZoomOut" class="tool" title="缩小"><span class="big">−</span></button>
+      <button id="btnZoomIn" class="tool" title="放大"><span class="big">+</span></button>
+    </div>
+  </footer>
+
+  <!-- 房间面板 -->
+  <aside id="roomPanel" class="panel">
+    <div class="panel-head">
+      <h2>房间列表</h2>
+      <button class="icon-btn" data-close="roomPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div id="roomList" class="room-list"></div>
+
+      <div class="divider"><span>创建房间</span></div>
+      <form id="createRoomForm" autocomplete="off">
+        <label>房间名<input id="newRoomName" type="text" maxlength="20" placeholder="2-20 位" required></label>
+        <label>房间密码（留空为公开）<input id="newRoomPass" type="text" maxlength="32" placeholder="可选"></label>
+        <div class="muted" style="font-size:12px;margin:-4px 0 6px">创建房间需消耗 <b style="color:#ffb454">1 张开房卡</b>（商店 1000 涂鸦币兑换 1 张），当前持有 <b id="myRoomCards" style="color:#ffd166">0</b> 张</div>
+        <div id="createErr" class="err"></div>
+        <button class="btn primary block" type="submit">创建并进入</button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- 菜单面板 -->
+  <aside id="menuPanel" class="panel right">
+    <div class="panel-head">
+      <h2>我的</h2>
+      <button class="icon-btn" data-close="menuPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="me-card">
+        <div class="avatar" id="meAvatar">P</div>
+        <div>
+          <div class="me-name" id="meName">-</div>
+          <div class="me-sub">作画点数 <b id="mePoints">0</b></div>
+        </div>
+      </div>
+
+      <div class="lv-card">
+        <div class="lv-line">
+          <span class="lv-tag">Lv.<b id="meLevel">1</b></span>
+          <span class="muted">累计涂鸦 <b id="meTotal">0</b></span>
+          <span class="muted coins-inline"><b id="meCoins2">0</b> 涂鸦币</span>
+        </div>
+        <div class="progress"><div class="progress-fill" id="meProgressFill"></div></div>
+        <div class="progress-text muted" id="meProgressText">0 / 50 · 升 2 级</div>
+      </div>
+
+      <div class="divider"><span>操作说明</span></div>
+      <ul class="tips">
+        <li><b>拖动模式</b>（默认）：手指/鼠标拖拽平移无限画布</li>
+        <li><b>作画模式</b>：点「作画」后，点击像素格即上色</li>
+        <li><b>擦除模式</b>：点击已上色格子将其清除</li>
+        <li>双指捏合 / 滚轮 可缩放画布，可一直缩小到世界全图</li>
+        <li>点「世界」一键查看整个世界地图</li>
+        <li>缩小到省级以下时自动隐藏涂鸦，放大到市级（zoom≥10）即显示</li>
+      </ul>
+
+      <div class="divider"><span>地图说明</span></div>
+      <ul class="tips">
+        <li>画布底图为<b>高德矢量地图瓦片</b>（合规图商），按需加载真实海岸线与地名；瓦片未加载/离线时显示示意轮廓占位</li>
+        <li>示意轮廓含中国全境（台湾、海南、南海诸岛、钓鱼岛）；正式商用请按图商授权要求配置 key 白名单</li>
+      </ul>
+
+      <div class="divider"><span>房间</span></div>
+      <button id="btnRoomSettings" class="btn ghost block hidden">房间设置（仅房主）</button>
+      <button id="btnDeleteRoom" class="btn danger block hidden">删除当前房间（房主）</button>
+      <button id="btnLogout" class="btn ghost block">退出登录</button>
+      <a class="btn ghost block center" href="admin/index.html">管理员后台</a>
+    </div>
+  </aside>
+
+  <!-- 房间设置面板（仅房主可见入口） -->
+  <aside id="settingsPanel" class="panel right">
+    <div class="panel-head">
+      <h2>房间设置</h2>
+      <button class="icon-btn" data-close="settingsPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="shop-card">
+        <div class="shop-card-title">涂鸦点数玩法</div>
+        <div class="shop-card-sub">自定义本房间的涂鸦点数规则，仅对房间内作画生效</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px">
+          <input id="setFreeDrawing" type="checkbox" style="width:16px;height:16px" />
+          <span>房间内涂鸦<b style="color:#43d17a">无需消耗涂鸦点</b></span>
+        </label>
+        <label class="muted" style="font-size:12.5px">涂鸦点恢复间隔（秒，留空跟随全局设置）</label>
+        <div class="shop-row" style="margin-top:6px">
+          <input id="setRegenInput" type="number" min="1" max="86400" placeholder="留空 = 全局（当前 30 秒）" />
+          <button class="pv-btn primary" onclick="saveRoomSettings()">保存</button>
+        </div>
+        <div id="settingsMsg" class="shop-msg"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 排行榜面板 -->
+  <aside id="boardPanel" class="panel right">
+    <div class="panel-head">
+      <h2>🏆 涂鸦排行榜 · 前 10</h2>
+      <button class="icon-btn" data-close="boardPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="board-list" id="boardRows"></div>
+    </div>
+  </aside>
+
+  <!-- 商店面板 -->
+  <aside id="shopPanel" class="panel right">
+    <div class="panel-head">
+      <h2>🛒 商店</h2>
+      <button class="icon-btn" data-close="shopPanel">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="shop-balance">
+        我的涂鸦币：<b id="shopCoins">0</b>
+        <span class="muted" id="shopTempInfo"></span>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">永久点数上限</div>
+        <div class="shop-card-sub">1 涂鸦币 = 提升 1 点上限（当前上限 <b id="shopLimit">60</b>）</div>
+        <div class="shop-row">
+          <input id="shopLimitInput" type="number" min="1" max="500" value="10" placeholder="数量" />
+          <button class="pv-btn primary" onclick="shopBuyLimit()">兑换</button>
+        </div>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">临时涂鸦点</div>
+        <div class="shop-card-sub">1 涂鸦币 = 10 临时点（与正式点分开计数，画布上优先消耗）</div>
+        <div class="shop-row">
+          <input id="shopTempInput" type="number" min="10" step="10" max="2000" value="10" placeholder="临时点数" />
+          <button class="pv-btn primary" onclick="shopBuyTemp()">兑换</button>
+        </div>
+      </div>
+
+      <div class="shop-card">
+        <div class="shop-card-title">开房卡</div>
+        <div class="shop-card-sub">1000 涂鸦币 = 1 张（创建房间消耗 1 张，当前持有 <b id="shopCards" style="color:#ffd166">0</b> 张）</div>
+        <div class="shop-row">
+          <input id="shopCardInput" type="number" min="1" max="50" value="1" placeholder="张数" />
+          <button class="pv-btn primary" onclick="shopBuyCard()">兑换</button>
+        </div>
+      </div>
+
+      <div id="shopMsg" class="shop-msg"></div>
+    </div>
+  </aside>
+
+  <div id="overlay" class="overlay"></div>
+
+  <!-- 密码输入弹窗 -->
+  <div id="pwdModal" class="modal">
+    <div class="modal-card">
+      <h3>房间需要密码</h3>
+      <p id="pwdRoomName" class="modal-sub"></p>
+      <input id="pwdInput" type="password" maxlength="32" placeholder="请输入房间密码">
+      <div id="pwdErr" class="err"></div>
+      <div class="modal-actions">
+        <button id="pwdCancel" class="btn ghost">取消</button>
+        <button id="pwdOk" class="btn primary">进入</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+</div>
+
+<script src="world.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

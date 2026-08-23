@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>像素画布 · 安装向导</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { background: #0f1226; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .install-card {
+      width: 460px; max-width: 92vw; background: #fff; border-radius: 14px;
+      padding: 28px 28px 22px; box-shadow: 0 18px 50px rgba(0,0,0,.3);
+    }
+    .install-card h1 { font-size: 20px; margin: 0 0 4px; }
+    .install-card .sub { color: #888; font-size: 13px; margin-bottom: 18px; }
+    .field { margin-bottom: 13px; }
+    .field label { display: block; font-size: 13px; color: #444; margin-bottom: 5px; font-weight: 600; }
+    .field input {
+      width: 100%; padding: 9px 11px; border: 1px solid #d4d8e3; border-radius: 8px;
+      font-size: 14px; box-sizing: border-box; outline: none;
+    }
+    .field input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+    .field .hint { color: #aaa; font-size: 11.5px; margin-top: 3px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .sep { border-top: 1px dashed #e3e6ef; margin: 18px 0 16px; position: relative; }
+    .sep span {
+      position: absolute; top: -11px; left: 14px; background: #fff; padding: 0 8px;
+      font-size: 12.5px; color: #3b82f6; font-weight: 700;
+    }
+    .btn-install {
+      width: 100%; padding: 12px; border: none; border-radius: 9px; background: #3b82f6;
+      color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 6px;
+    }
+    .btn-install:hover { background: #2f6fe0; }
+    .btn-install:disabled { background: #aac4f5; cursor: default; }
+    .msg { margin-top: 14px; font-size: 13px; padding: 9px 11px; border-radius: 8px; display: none; }
+    .msg.err { background: #fde8e8; color: #b42318; display: block; }
+    .msg.ok { background: #e7f6ec; color: #1a7f37; display: block; }
+  </style>
+</head>
+<body>
+  <div class="install-card">
+    <h1>像素画布安装向导</h1>
+    <div class="sub">首次运行，请填写数据库连接与后台管理员账号。</div>
+
+    <form id="installForm">
+      <div class="field">
+        <label>数据库主机</label>
+        <input id="host" value="127.0.0.1" />
+        <div class="hint">一般填 127.0.0.1（本地 MySQL）</div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>端口</label>
+          <input id="port" value="3306" inputmode="numeric" />
+        </div>
+        <div class="field">
+          <label>数据库名</label>
+          <input id="dbName" value="qypixel" />
+          <div class="hint">不存在则自动创建</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>数据库账号 <span style="color:#c00">*</span></label>
+        <input id="dbUser" placeholder="如 root 或专用账号" />
+        <div class="hint">需有创建库权限</div>
+      </div>
+      <div class="field">
+        <label>数据库密码</label>
+        <input id="dbPass" type="password" placeholder="留空表示无密码" />
+      </div>
+
+      <div class="sep"><span>后台管理员</span></div>
+
+      <div class="field">
+        <label>后台账号 <span style="color:#c00">*</span></label>
+        <input id="adminUser" placeholder="如 admin" />
+      </div>
+      <div class="field">
+        <label>后台密码 <span style="color:#c00">*</span></label>
+        <input id="adminPass" type="password" placeholder="4-32 位" />
+      </div>
+
+      <button class="btn-install" type="submit" id="submitBtn">开始安装</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function showMsg(text, ok) {
+      const m = $('msg');
+      m.textContent = text;
+      m.className = 'msg ' + (ok ? 'ok' : 'err');
+    }
+
+    // 已安装则直接跳后台
+    fetch('/api/install/status').then(r => r.json()).then(d => {
+      if (d.installed) location.href = '/admin.html';
+    }).catch(() => {});
+
+    $('installForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('submitBtn');
+      btn.disabled = true;
+      showMsg('正在安装，请稍候…', true);
+      const body = {
+        host: $('host').value.trim(),
+        port: Number($('port').value.trim()) || 3306,
+        dbName: $('dbName').value.trim() || 'qypixel',
+        dbUser: $('dbUser').value.trim(),
+        dbPass: $('dbPass').value,
+        adminUser: $('adminUser').value.trim(),
+        adminPass: $('adminPass').value,
+      };
+      if (!body.dbUser || !body.adminUser || !body.adminPass) {
+        showMsg('请完整填写带 * 的必填项', false);
+        btn.disabled = false;
+        return;
+      }
+      try {
+        const res = await fetch('/api/install', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          showMsg('安装成功！正在进入后台…', true);
+          setTimeout(() => { location.href = '/admin.html'; }, 1200);
+        } else {
+          showMsg(d.message || '安装失败', false);
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showMsg('网络错误：' + err.message, false);
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

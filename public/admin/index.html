@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>像素画布 · 管理后台</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #11131a; --panel: #1a1d27; --panel2: #212533;
+    --line: #2c3142; --txt: #e6e9f0; --muted: #8b91a3;
+    --accent: #4cc2ff; --danger: #ff5d6c; --ok: #43d17a; --warn: #ffb454;
+    --pixel: 4px;
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font-family: "Courier New", ui-monospace, monospace; font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; background: var(--panel);
+    border-bottom: var(--pixel) solid var(--line);
+  }
+  .brand { font-weight: bold; letter-spacing: 1px; font-size: 16px; }
+  .brand b { color: var(--accent); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px; }
+  .hidden { display: none !important; }
+  button {
+    font-family: inherit; cursor: pointer; border: 2px solid var(--line);
+    background: var(--panel2); color: var(--txt); padding: 6px 12px;
+    border-radius: 2px; transition: .12s; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.danger { border-color: #5a2730; color: var(--danger); }
+  button.danger:hover { background: #2a161a; }
+  button.primary { background: var(--accent); color: #06121a; border-color: var(--accent); font-weight: bold; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.sm { padding: 3px 8px; font-size: 12px; }
+  input {
+    font-family: inherit; background: var(--bg); color: var(--txt);
+    border: 2px solid var(--line); padding: 8px 10px; border-radius: 2px; width: 100%;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+
+  /* 登录 */
+  #login { max-width: 360px; margin: 12vh auto; }
+  #login h2 { text-align: center; margin: 0 0 18px; }
+  #login .row { margin-bottom: 12px; }
+
+  /* 概览卡片 */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--panel); border: 2px solid var(--line); padding: 14px; text-align: center; }
+  .stat .num { font-size: 26px; font-weight: bold; color: var(--accent); }
+  .stat .lbl { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  .section { margin-bottom: 28px; }
+  .section h3 { border-left: var(--pixel) solid var(--accent); padding-left: 10px; margin: 0 0 12px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: normal; background: var(--panel2); }
+  tr:hover td { background: #1f2330; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 2px; font-size: 11px; }
+  .tag.pub { background: #143a2a; color: var(--ok); }
+  .tag.priv { background: #2a2433; color: var(--muted); }
+  .tag.ban { background: #2a161a; color: var(--danger); }
+  .tag.on { background: #143a2a; color: var(--ok); }
+  .tag.off { background: #222; color: var(--muted); }
+  .mono { font-family: "Courier New", monospace; }
+  .pwd { color: var(--warn); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .msg { padding: 8px 12px; margin: 10px 0; border-radius: 2px; font-size: 13px; }
+  .msg.err { background: #2a161a; color: var(--danger); }
+  .msg.ok { background: #143a2a; color: var(--ok); }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .muted { color: var(--muted); }
+  a.link { color: var(--accent); cursor: pointer; }
+
+  /* 画迹：画布缩略图 */
+  .canvas-wrap {
+    position: relative; background: #0a0c12; border: 2px solid var(--line);
+    border-radius: 4px; overflow: hidden;
+  }
+  .canvas-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: var(--panel2); border-bottom: 1px solid var(--line);
+    font-size: 12px; flex-wrap: wrap; gap: 6px;
+  }
+  .canvas-head .stat-item { color: var(--muted); margin-right: 14px; white-space: nowrap; }
+  .canvas-head .stat-item b { color: var(--accent); font-weight: normal; }
+  .canvas-head .cz-btn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+    cursor: pointer; padding: 2px 8px; border-radius: 2px; font-size: 12px; font-family: inherit;
+  }
+  .canvas-head .cz-btn:hover { border-color: var(--accent); }
+  /* 画迹弹窗：房间筛选 + 删除操作栏 */
+  .log-filter-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 8px 0; padding: 6px 8px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; font-size: 13px;
+  }
+  .log-filter-row input { width: 150px; }
+  .log-filter-row .spacer { flex: 1; }
+  .log-filter-row .danger { color: var(--danger); border-color: var(--danger); }
+  .log-filter-row .danger:hover { background: var(--danger); color: #fff; }
+  .canvas-body { position: relative; cursor: grab; user-select: none; }
+  .canvas-body:active { cursor: grabbing; }
+  .canvas-body canvas { display: block; }
+  .canvas-overlay {
+    position: absolute; bottom: 8px; left: 8px; pointer-events: none;
+    color: var(--muted); font-size: 11px; background: rgba(0,0,0,.55);
+    padding: 3px 7px; border-radius: 2px; font-family: monospace;
+  }
+  .canvas-legend {
+    position: absolute; top: 8px; right: 8px; pointer-events: none;
+    display: flex; gap: 10px; font-size: 11px; color: var(--muted);
+  }
+  .canvas-legend span { display: flex; align-items: center; gap: 4px; }
+  .canvas-legend i { display: inline-block; width: 12px; height: 12px; border: 1px solid #555; }
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex;
+    align-items: center; justify-content: center; z-index: 99;
+  }
+  .modal-box {
+    width: min(960px, 94vw); max-height: 84vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-bottom: 2px solid var(--line);
+  }
+  .modal-head h3 { margin: 0; }
+  .modal-body { overflow: auto; padding: 14px 16px; }
+  .modal-body input[type="number"], .modal-body input[type="text"], .modal-body input[type="password"] {
+    background: var(--panel); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px;
+  }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .filters input { width: 130px; display: inline-block; }
+  .action-badge { font-size: 11px; padding: 1px 7px; border-radius: 2px; }
+  .action-badge.place { background: #143a2a; color: var(--ok); }
+  .action-badge.erase { background: #2a161a; color: var(--danger); }
+  .action-badge.limit { background: #3a2a14; color: var(--warn); }
+  .action-badge.temp { background: #14333f; color: #7dd3fc; }
+  .action-badge.free { background: #143a2a; color: var(--ok); }
+  .copy-btn { cursor: pointer; color: var(--accent); margin-left: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">像素画布 · <b>管理后台</b></div>
+  <div id="head-right" class="muted">未登录</div>
+</header>
+
+<div class="wrap">
+
+  <!-- 登录 -->
+  <div id="login" class="hidden">
+    <h2>管理员登录</h2>
+    <div id="login-msg"></div>
+    <div class="row"><input id="admin-user" placeholder="管理员账号" autocomplete="username" /></div>
+    <div class="row"><input id="admin-pass" type="password" placeholder="密码" autocomplete="current-password" /></div>
+    <button class="primary" style="width:100%" onclick="doLogin()">登录</button>
+    <p style="text-align:center;margin-top:8px"><a class="link" href="/">← 返回作画页</a></p>
+  </div>
+
+  <!-- 后台主体（默认隐藏，登录成功后才显示） -->
+  <div id="dash" class="hidden" style="display:none">
+    <div id="dash-msg"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="section">
+      <h3>全局设置</h3>
+      <div class="toolbar">
+        <span class="muted">点数额度恢复间隔（秒）：每到此间隔，给未达上限的玩家 +1 点</span>
+        <span>
+          <input id="regenInput" type="number" min="1" max="86400" value="30"
+                 style="width:110px;display:inline-block;margin-right:8px" />
+          <button class="primary" onclick="saveSettings()">保存间隔</button>
+        </span>
+      </div>
+      <div class="toolbar" style="margin-top:10px">
+        <span class="muted">注册邮箱验证（QQ 邮箱发验证码）：关闭后注册无需邮箱</span>
+        <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--txt)">
+          <input id="evrInput" type="checkbox" checked style="width:auto" />
+          <span>需要邮箱验证</span>
+        </label>
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <span class="muted">邮件发信配置见下方「邮件设置」区域</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>邮件设置</h3>
+      <div class="toolbar">
+        <span class="muted">注册验证码发信账号（QQ 邮箱 SMTP）：填写后需先点保存，再进行发信测试</span>
+      </div>
+      <div class="toolbar" style="margin-top:8px">
+        <span>
+          <input id="emailUserInput" type="text" placeholder="发信邮箱账号（如 123@qq.com）" style="width:200px;display:inline-block;margin-right:8px" />
+          <input id="emailPassInput" type="password" placeholder="SMTP 授权码" style="width:170px;display:inline-block;margin-right:8px" />
+          <button class="primary" onclick="saveEmailSettings()">保存邮件设置</button>
+          <button onclick="testEmail()">发信测试</button>
+          <span class="muted" style="margin-left:8px;font-size:13px">⚠️ 请先保存再测试</span>
+        </span>
+      </div>
+
+    <div class="section">
+      <h3>玩家账号（<span id="user-count">0</span>）</h3>
+      <div class="toolbar"><span class="muted">可查看账号、密码、邮箱、作画点数，并执行详情修改 / 封禁 / 重置点数 / 删除</span></div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>账号</th><th>密码</th><th>作画点数</th><th>涂鸦币</th><th>状态</th>
+          <th>在线</th><th>创建房间</th><th>注册时间</th><th>操作</th>
+        </tr></thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3>房间列表（<span id="room-count">0</span>）</h3>
+      <div class="toolbar"><span class="muted">可查看房间密码、在线人数、玩法设置，并执行清空画布 / 改密码 / 删除</span></div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>房间名</th><th>类型</th><th>房间密码</th><th>房主</th>
+          <th>玩法</th><th>像素数</th><th>在线</th><th>创建时间</th><th>操作</th>
+        </tr></thead>
+        <tbody id="room-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3>画迹总览（<span id="log-count">0</span>）</h3>
+      <div class="toolbar">
+        <span class="muted">在画布缩略图上直观查看当前所有像素，支持按用户或房间筛选（仅显示画布现有状态）</span>
+      </div>
+      <div class="filters">
+        <input id="logFilterUser" type="number" placeholder="用户ID" />
+        <input id="logFilterRoom" type="number" placeholder="房间ID" />
+        <button class="primary" onclick="loadAllLogs(1)">筛选</button>
+        <button onclick="document.getElementById('logFilterUser').value='';document.getElementById('logFilterRoom').value='';loadAllLogs(1)">清除</button>
+      </div>
+      <div class="canvas-wrap" style="height:520px">
+        <div class="canvas-head">
+          <div>
+            <span class="stat-item">共 <b id="logTotalPixels">0</b> 条</span>
+            <span class="stat-item">作画 <b id="logPlaceCount">0</b></span>
+            <span class="stat-item" id="logDateRange"></span>
+          </div>
+          <div>
+            <button class="cz-btn" onclick="zoomCanvas('all', 'main')">适应全部</button>
+            <button class="cz-btn" onclick="zoomCanvas('in', 'main')">放大 +</button>
+            <button class="cz-btn" onclick="zoomCanvas('out', 'main')">缩小 −</button>
+            <button class="cz-btn" onclick="toggleGrid('main')">网格</button>
+          </div>
+        </div>
+        <div class="canvas-body" id="mainCanvasBody" style="height:460px">
+          <canvas id="mainLogCanvas"></canvas>
+          <div class="canvas-overlay" id="mainOverlay"></div>
+          <div class="canvas-legend"><span><i style="background:var(--ok)"></i>像素</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>商店流水（<span id="shoplog-count">0</span>）</h3>
+      <div class="toolbar">
+        <span class="muted">记录玩家用涂鸦币兑换点数上限 / 临时涂鸦点的明细：用户 ID、花费币数、兑换内容与数量</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>时间</th><th>用户 ID</th><th>用户名</th><th>兑换类型</th><th>花费涂鸦币</th><th>兑换数量</th>
+        </tr></thead>
+        <tbody id="shoplog-rows"></tbody>
+      </table>
+      <div class="pager">
+        <button id="shoplogPrev" class="sm" onclick="loadShopLogs(shopLogPage - 1)">← 上一页</button>
+        <button id="shoplogNext" class="sm" onclick="loadShopLogs(shopLogPage + 1)">下一页 →</button>
+        <span class="info" id="shoplogPageInfo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 房间玩法设置弹窗 -->
+<div id="roomSetModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="roomSetTitle">房间玩法设置</h3>
+      <button onclick="closeRoomSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:14px">
+        <input id="roomSetFree" type="checkbox" style="width:16px;height:16px" />
+        <span>房间内涂鸦<b style="color:var(--ok)">无需消耗涂鸦点</b></span>
+      </label>
+      <label class="muted" style="font-size:12.5px">涂鸦点恢复间隔（秒，留空跟随全局）</label>
+      <input id="roomSetRegen" type="number" min="1" max="86400" placeholder="留空 = 跟随全局"
+             style="width:100%;box-sizing:border-box;margin:6px 0 10px" />
+      <div id="roomSetMsg" class="err"></div>
+      <div class="modal-actions">
+        <button class="primary" onclick="saveRoomSettingsAdmin()">保存玩法</button>
+        <button onclick="closeRoomSettings()">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单用户画迹弹窗 -->
+<div id="userLogModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="userLogTitle">画迹</h3>
+      <button onclick="closeUserLogs()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="canvas-wrap" style="height:540px">
+        <div class="canvas-head">
+          <div>
+            <span class="stat-item">当前画布像素 <b id="uLogTotalPixels">0</b> 个</span>
+            <span class="muted" id="uLogDateRange"></span>
+          </div>
+          <div>
+            <button class="cz-btn" onclick="zoomCanvas('all', 'user')">适应全部</button>
+            <button class="cz-btn" onclick="zoomCanvas('in', 'user')">放大 +</button>
+            <button class="cz-btn" onclick="zoomCanvas('out', 'user')">缩小 −</button>
+            <button class="cz-btn" onclick="toggleGrid('user')">网格</button>
+          </div>
+        </div>
+        <div class="log-filter-row">
+          <span class="muted">房间ID</span>
+          <input id="uLogRoomFilter" type="number" placeholder="必填：输入房间ID" onchange="loadUserPixels()" />
+          <button class="cz-btn" onclick="loadUserPixels()">加载画迹</button>
+          <span class="spacer"></span>
+          <button class="cz-btn danger" onclick="deleteUserPixels(userLogUserId)">删除此人在该房间的画迹</button>
+        </div>
+        <div class="canvas-body" id="userCanvasBody" style="height:380px">
+          <canvas id="userLogCanvas"></canvas>
+          <div class="canvas-overlay" id="userOverlay"></div>
+          <div class="canvas-legend"><span><i style="background:var(--ok)"></i>像素</span></div>
+        </div>
+      </div>
+      <div class="pager hidden" style="margin-top:10px" id="userLogPager">
+        <button id="uLogPrev" class="sm" onclick="loadUserLogs(userLogPage - 1)">← 上一页</button>
+        <button id="uLogNext" class="sm" onclick="loadUserLogs(userLogPage + 1)">下一页 →</button>
+        <span class="info" id="userLogPageInfo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单用户详情弹窗（查看/修改账号、密码、邮箱） -->
+<div id="userDetailModal" class="modal-mask hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>用户详情</h3>
+      <button onclick="show('userDetailModal', false)">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;margin-bottom:12px">账号
+        <input id="udUser" type="text" maxlength="20" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <label style="display:block;margin-bottom:12px">密码
+        <input id="udPass" type="text" maxlength="32" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <label style="display:block;margin-bottom:12px">邮箱
+        <input id="udEmail" type="email" maxlength="255" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg2);color:var(--txt)" />
+      </label>
+      <div id="udErr" style="color:#ff8080;font-size:12.5px;min-height:18px"></div>
+      <button class="primary" style="width:100%;padding:11px;border:0;border-radius:8px;font-weight:600" onclick="saveUserDetail()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('adminToken') || '';
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+async function api(method, url, body) {
+  const opt = { method, headers: { 'Content-Type': 'application/json' } };
+  if (token) opt.headers.Authorization = 'Bearer ' + token;
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(url, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) throw new Error(data.message || ('HTTP ' + r.status));
+  return data;
+}
+
+function show(el, on) {
+  const e = $(el);
+  if (!e) return;
+  e.classList.toggle('hidden', !on);
+  // #dash 有 inline style="display:none" 作为默认隐藏，需要同步
+  if (el === 'dash') {
+    e.style.display = on ? '' : 'none';
+  }
+}
+
+function flash(box, text, ok) {
+  const d = $(box);
+  d.innerHTML = text ? `<div class="msg ${ok ? 'ok' : 'err'}">${esc(text)}</div>` : '';
+  if (text) setTimeout(() => { if (d.firstChild) d.innerHTML = ''; }, 2500);
+}
+
+// -------- 登录 --------
+async function doLogin() {
+  const username = $('admin-user').value.trim();
+  const password = $('admin-pass').value;
+  try {
+    const d = await api('POST', '/api/admin/login', { username, password });
+    token = d.token;
+    localStorage.setItem('adminToken', token);
+    openDash();
+  } catch (e) {
+    flash('login-msg', e.message, false);
+  }
+}
+$('admin-pass')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+function logout() {
+  token = '';
+  localStorage.removeItem('adminToken');
+  // 隐藏 dashboard，显示登录框
+  show('dash', false);
+  $('dash').style.display = 'none';
+  show('login', true);
+  $('head-right').innerHTML = '未登录';
+}
+
+// -------- 后台 --------
+function openDash() {
+  show('login', false);
+  // 移除 inline style，让 class hidden 接管
+  $('dash').style.display = '';
+  show('dash', true);
+  $('head-right').innerHTML = `已登录 · <a class="link" onclick="logout()">退出</a>`;
+  // 等待 DOM 布局完成后再初始化渲染器（确保画布有真实尺寸）
+  requestAnimationFrame(() => {
+    initRenderers();
+    refreshAll();
+  });
+}
+
+async function refreshAll() {
+  console.log('[refreshAll] start, token:', token ? token.slice(0,8)+'...' : 'EMPTY');
+  try {
+    // 1. 统计概览
+    console.log('[refreshAll] fetching stats...');
+    const s = await api('GET', '/api/admin/stats');
+    console.log('[refreshAll] stats OK:', JSON.stringify(s.stats));
+    const st = s.stats;
+    $('stats').innerHTML = `
+      <div class="stat"><div class="num">${st.users}</div><div class="lbl">玩家总数</div></div>
+      <div class="stat"><div class="num" style="color:var(--danger)">${st.banned}</div><div class="lbl">已封禁</div></div>
+      <div class="stat"><div class="num">${st.rooms}</div><div class="lbl">房间数</div></div>
+      <div class="stat"><div class="num">${st.pixels}</div><div class="lbl">像素总数</div></div>
+      <div class="stat"><div class="num" style="color:var(--ok)">${st.online}</div><div class="lbl">在线连接</div></div>`;
+    try {
+      const cfg = await api('GET', '/api/admin/settings');
+      $('regenInput').value = cfg.pointRegenSeconds;
+      $('evrInput').checked = cfg.emailVerifyRequired !== false;
+    } catch { /* ignore settings error */ }
+    try {
+      const em = await api('GET', '/api/admin/email-settings');
+      $('emailUserInput').value = em.emailUser || '';
+      $('emailPassInput').value = em.emailPass || '';
+    } catch { /* ignore email settings error */ }
+
+    // 2-5. 顺序加载各模块（任一失败不影响其他）
+    console.log('[refreshAll] loading users...');
+    try { await loadUsers(); console.log('[refreshAll] users OK'); }
+    catch (e) { console.error('[refreshAll] users FAIL:', e.message); }
+
+    console.log('[refreshAll] loading rooms...');
+    try { await loadRooms(); console.log('[refreshAll] rooms OK'); }
+    catch (e) { console.error('[refreshAll] rooms FAIL:', e.message); }
+
+    console.log('[refreshAll] loading logs...');
+    try { await loadAllLogs(allLogsPage); console.log('[refreshAll] logs OK'); }
+    catch (e) { console.error('[refreshAll] logs FAIL:', e.message); }
+
+    console.log('[refreshAll] loading shop logs...');
+    try { await loadShopLogs(shopLogPage); console.log('[refreshAll] shop OK'); }
+    catch (e) { console.error('[refreshAll] shop FAIL:', e.message); }
+
+    console.log('[refreshAll] ALL DONE');
+  } catch (e) {
+    console.error('[refreshAll] TOP LEVEL ERROR:', e.message, e.stack);
+    if (/401|403/.test(e.message)) { logout(); return; }
+    flash('dash-msg', e.message, false);
+  }
+}
+
+async function loadUsers() {
+  const d = await api('GET', '/api/admin/users');
+  window._usersCache = d.users;
+  $('user-count').textContent = d.users.length;
+  $('user-rows').innerHTML = d.users.map((u) => `
+    <tr>
+      <td>${u.id}</td>
+      <td>${esc(u.username)}${u.isAdmin ? ' <span class="tag pub">管理员</span>' : ''}</td>
+      <td class="pwd mono">${esc(u.password)}</td>
+      <td>${u.points}<span class="muted">/${u.pointLimit ?? '—'}</span></td>
+      <td class="mono" style="color:var(--warn)">${u.coins ?? 0}</td>
+      <td>${u.banned ? '<span class="tag ban">已封禁</span>' : '<span class="tag on">正常</span>'}</td>
+      <td>${u.online ? '<span class="tag on">在线</span>' : '<span class="tag off">离线</span>'}</td>
+      <td>${u.ownedRooms}</td>
+      <td class="muted">${esc(u.createdAt || '—')}</td>
+      <td>
+        <div class="actions">
+          ${u.isAdmin ? `
+            <button class="sm" onclick="openUserDetail(${u.id})">详情</button>
+            <button class="sm" onclick="openUserLogs(${u.id}, ${JSON.stringify(u.username).replace(/"/g, '&quot;')})">画迹</button>
+            <button class="sm" onclick="setUserPoints(${u.id}, ${u.points}, ${u.pointLimit ?? 60})">设点数</button>
+            <button class="sm" onclick="setUserCoins(${u.id}, ${u.coins ?? 0})">设涂鸦币</button>` : `
+            <button class="sm" onclick="openUserDetail(${u.id})">详情</button>
+            <button class="sm" onclick="openUserLogs(${u.id}, ${JSON.stringify(u.username).replace(/"/g, '&quot;')})">画迹</button>
+            <button class="sm ${u.banned ? '' : 'danger'}" onclick="banUser(${u.id}, ${u.banned ? 0 : 1})">
+              ${u.banned ? '解封' : '封禁'}</button>
+            <button class="sm" onclick="setUserPoints(${u.id}, ${u.points}, ${u.pointLimit ?? 60})">设点数</button>
+            <button class="sm" onclick="setUserCoins(${u.id}, ${u.coins ?? 0})">设涂鸦币</button>
+            <button class="sm" onclick="resetPoints(${u.id})">重置点数</button>
+            <button class="sm danger" onclick="delUser(${u.id})">删除</button>`}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+async function banUser(id, banned) {
+  try { await api('POST', `/api/admin/users/${id}/ban`, { banned }); flash('dash-msg', banned ? '已封禁' : '已解封', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function resetPoints(id) {
+  try { await api('POST', `/api/admin/users/${id}/reset-points`); flash('dash-msg', '点数已重置', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function delUser(id) {
+  if (!confirm('确认删除该玩家？其创建的非公共房间将一并被删除。')) return;
+  try { await api('DELETE', `/api/admin/users/${id}`); flash('dash-msg', '已删除玩家', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+
+/* ---------- 画迹画布渲染引擎 ---------- */
+let allLogsPage = 1;
+let userLogPage = 1;
+let userLogUserId = null;
+
+/**
+ * PixelCanvasRenderer — 将像素日志 (x,y,color,action) 绘制到 Canvas 缩略图
+ * 支持自适应边界、缩放、平移、网格叠加
+ */
+class PixelCanvasRenderer {
+  constructor(canvasId, bodyId, overlayId) {
+    this.canvas = document.getElementById(canvasId);
+    this.body = document.getElementById(bodyId);
+    this.overlayEl = document.getElementById(overlayId);
+    this.ctx = this.canvas.getContext('2d');
+    this.logs = [];          // {x, y, color, action}
+    // 视口状态
+    this.scale = 1;          // px/坐标单位
+    this.offsetX = 0;        // 画布偏移 px
+    this.offsetY = 0;
+    this.showGrid = false;
+    // 拖拽
+    this.dragging = false;
+    this.lastX = 0;
+    this.lastY = 0;
+    // 数据边界
+    this.bounds = null;      // {minX,maxX,minY,maxY}
+    this._bindEvents();
+    this._resize();
+    // 窗口 resize 监听
+    this._resizeObserver = new ResizeObserver(() => this._resize());
+    if (this.body) this._resizeObserver.observe(this.body);
+  }
+
+  _bindEvents() {
+    if (!this.body) return;
+    const wheelHandler = (e) => {
+      e.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // 以鼠标位置为中心缩放
+      const factor = e.deltaY < 0 ? 1.25 : 0.8;
+      const newScale = Math.max(0.001, Math.min(10000, this.scale * factor));
+      // 调整 offset 使鼠标下方的点保持不动
+      const sx = (mx - this.offsetX) / this.scale;
+      const sy = (my - this.offsetY) / this.scale;
+      this.scale = newScale;
+      this.offsetX = mx - sx * this.scale;
+      this.offsetY = my - sy * this.scale;
+      this.render();
+    };
+    this.body.addEventListener('wheel', wheelHandler, { passive: false });
+
+    this.body.addEventListener('mousedown', (e) => {
+      this.dragging = true;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!this.dragging) return;
+      this.offsetX += e.clientX - this.lastX;
+      this.offsetY += e.clientY - this.lastY;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+      this.render();
+    });
+    window.addEventListener('mouseup', () => { this.dragging = false; });
+  }
+
+  _resize() {
+    if (!this.body || !this.canvas) return;
+    const rect = this.body.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = rect.width;
+    const h = rect.height;
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.w = w;
+    this.h = h;
+    // 尺寸变化时自动重新适应（避免缩放偏离）
+    if (this.bounds && this.logs.length) this.fitAll();
+    else this.render();
+  }
+
+  /** 设置数据并自动适应 */
+  setData(logs) {
+    this.logs = logs || [];
+    this._calcBounds();
+    this.fitAll();
+  }
+
+  _calcBounds() {
+    if (!this.logs.length) { this.bounds = null; return; }
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of this.logs) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    // 加一点边距（至少 5% 或 10 坐标单位）
+    const dx = Math.max((maxX - minX) * 0.05, 10);
+    const dy = Math.max((maxY - minY) * 0.05, 10);
+    this.bounds = { minX: minX - dx, maxX: maxX + dx, minY: minY - dy, maxY: maxY + dy };
+  }
+
+  /** 适应全部数据 */
+  fitAll() {
+    if (!this.bounds) {
+      this.scale = 1; this.offsetX = 0; this.offsetY = 0;
+      this.render(); return;
+    }
+    const b = this.bounds;
+    const rangeX = b.maxX - b.minX || 1;
+    const rangeY = b.maxY - b.minY || 1;
+    const scaleX = this.w / rangeX;
+    const scaleY = this.h / rangeY;
+    this.scale = Math.min(scaleX, scaleY);
+    this.offsetX = (this.w - rangeX * this.scale) / 2 - b.minX * this.scale;
+    this.offsetY = (this.h - rangeY * this.scale) / 2 - b.minY * this.scale;
+    this.render();
+  }
+
+  /** 缩放操作 */
+  zoomIn() {
+    this.scale *= 1.5; this.render();
+  }
+  zoomOut() {
+    this.scale /= 1.5; this.render();
+  }
+
+  toggleGrid() {
+    this.showGrid = !this.showGrid;
+    this.render();
+  }
+
+  /** 坐标 → 画布 px */
+  toScreen(x, y) {
+    return { x: x * this.scale + this.offsetX, y: y * this.scale + this.offsetY };
+  }
+
+  /** 画布 px → 坐标 */
+  toWorld(sx, sy) {
+    return { x: (sx - this.offsetX) / this.scale, y: (sy - this.offsetY) / this.scale };
+  }
+
+  render() {
+    const ctx = this.ctx;
+    const W = this.w, H = this.h;
+    // 清空
+    ctx.fillStyle = '#0a0c12';
+    ctx.fillRect(0, 0, W, H);
+
+    if (!this.logs.length) {
+      ctx.fillStyle = '#8b91a3'; ctx.font = '14px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('暂无画迹数据', W / 2, H / 2);
+      this._updateOverlay();
+      return;
+    }
+
+    // 网格
+    if (this.showGrid) this._drawGrid();
+
+    // 绘制每个像素点（用小矩形）
+    // 根据缩放级别动态调整点大小
+    let dotSize = Math.max(1.5, Math.min(12, this.scale * 0.8));
+    if (dotSize < 3) dotSize = Math.max(1.2, dotSize);  // 很小时也要可见
+    // 擦除用 X 标记
+    for (const p of this.logs) {
+      const s = this.toScreen(p.x, p.y);
+      if (s.x < -dotSize || s.y < -dotSize || s.x > W + dotSize || s.y > H + dotSize) continue;
+      if (p.action === 'erase') {
+        // 擦除：红色 X
+        ctx.strokeStyle = '#ff5d6c'; ctx.lineWidth = Math.max(1, dotSize * 0.3);
+        const r = dotSize * 0.45;
+        ctx.beginPath(); ctx.moveTo(s.x - r, s.y - r); ctx.lineTo(s.x + r, s.y + r); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(s.x + r, s.y - r); ctx.lineTo(s.x - r, s.y + r); ctx.stroke();
+        // 外框
+        ctx.strokeStyle = 'rgba(255,93,108,0.4)'; ctx.lineWidth = Math.max(0.8, dotSize * 0.15);
+        ctx.strokeRect(s.x - dotSize/2, s.y - dotSize/2, dotSize, dotSize);
+      } else {
+        // 作画：实际颜色填充
+        ctx.fillStyle = p.color || '#ffffff';
+        ctx.fillRect(s.x - dotSize/2, s.y - dotSize/2, dotSize, dotSize);
+      }
+    }
+
+    this._updateOverlay();
+  }
+
+  _drawGrid() {
+    const ctx = this.ctx;
+    const W = this.w, H = this.h;
+    // 计算合适的网格间距（目标约 80px 一格）
+    const targetPx = 80;
+    const worldStep = targetPx / this.scale;
+    // 取整到 1/2/5/10 的 nice number
+    const mag = Math.pow(10, Math.floor(Math.log10(worldStep)));
+    let step = mag;
+    if (mag * 2 <= worldStep * 2.5) step = mag * 2;
+    else if (mag * 5 <= worldStep * 2.5) step = mag * 5;
+    else step = mag * 10;
+
+    const origin = this.toWorld(0, 0);
+    const startX = Math.floor(origin.x / step) * step;
+    const startY = Math.floor(origin.y / step) * step;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
+    ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    // 垂直线
+    for (let x = startX; ; x += step) {
+      const sx = x * this.scale + this.offsetX;
+      if (sx > W + step * this.scale) break;
+      if (sx < -step * this.scale) continue;
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+      if (Math.abs(x) > 0.001 * step) { ctx.fillText(String(x), sx + 2, 12); }
+    }
+    // 水平线
+    for (let y = startY; ; y += step) {
+      const sy = y * this.scale + this.offsetY;
+      if (sy > H + step * this.scale) break;
+      if (sy < -step * this.scale) continue;
+      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke();
+      if (Math.abs(y) > 0.001 * step) { ctx.fillText(String(y), 2, sy - 2); }
+    }
+  }
+
+  _updateOverlay() {
+    if (!this.overlayEl) return;
+    const w = this.toWorld(this.w, 0).x - this.toWorld(0, 0).x;
+    const h = this.toWorld(0, this.h).y - this.toWorld(0, 0).y;
+    const cx = this.toWorld(this.w / 2, this.h / 2);
+    this.overlayEl.textContent =
+      `视口 ${w.toFixed(0)} × ${h.toFixed(0)} · 中心 (${cx.x.toFixed(0)}, ${cx.y.toFixed(0)}) · ${this.scale.toFixed(3)}x`;
+  }
+
+  destroy() {
+    if (this._resizeObserver) this._resizeObserver.disconnect();
+  }
+}
+
+// 全局渲染器实例
+let mainRenderer = null;
+let userRenderer = null;
+
+// 初始化渲染器（在 dash 已显示、画布有真实尺寸后调用）
+// 每个渲染器独立检查，不因其中一个已存在而跳过另一个
+function initRenderers() {
+  const mainBody = $('mainCanvasBody');
+  const userBody = $('userCanvasBody');
+  if (!mainRenderer && mainBody && mainBody.offsetWidth > 0) {
+    mainRenderer = new PixelCanvasRenderer('mainLogCanvas', 'mainCanvasBody', 'mainOverlay');
+    console.log('[initRenderers] mainRenderer CREATED, w:', mainRenderer.w, 'h:', mainRenderer.h);
+  } else if (!mainRenderer) {
+    console.warn('[initRenderers] mainBody has no size yet, skipping');
+  }
+  if (!userRenderer && userBody && userBody.offsetWidth > 0) {
+    userRenderer = new PixelCanvasRenderer('userLogCanvas', 'userCanvasBody', 'userOverlay');
+    console.log('[initRenderers] userRenderer CREATED, w:', userRenderer.w, 'h:', userRenderer.h);
+  }
+}
+
+function zoomCanvas(action, which) {
+  const r = which === 'main' ? mainRenderer : userRenderer;
+  if (!r) return;
+  if (action === 'all') r.fitAll();
+  else if (action === 'in') r.zoomIn();
+  else if (action === 'out') r.zoomOut();
+}
+
+function toggleGrid(which) {
+  const r = which === 'main' ? mainRenderer : userRenderer;
+  if (r) r.toggleGrid();
+}
+
+// 全局画迹总览（可筛选）→ 画布缩略图
+async function loadAllLogs(page) {
+  console.log('[loadAllLogs] called, page:', page);
+  allLogsPage = Math.max(1, page);
+  const userId = document.getElementById('logFilterUser').value.trim();
+  const roomId = document.getElementById('logFilterRoom').value.trim();
+  // 画布模式一次取全部像素（无条数限制）
+  const q = new URLSearchParams({ limit: 999999, offset: 0 });
+  if (userId) q.set('userId', userId);
+  if (roomId) q.set('roomId', roomId);
+  try {
+    const d = await api('GET', '/api/admin/logs?' + q.toString());
+    console.log('[loadAllLogs] API response total:', d.total, 'logs:', d.logs?.length);
+    $('log-count').textContent = d.total;
+    // 统计（全部为当前画布像素，无擦除）
+    $('logTotalPixels').textContent = d.logs.length;
+    $('logPlaceCount').textContent = d.logs.length;
+    if (d.logs.length) {
+      // 按 updated_at 排序找时间范围
+      const times = d.logs.map(l => l.created_at || '').filter(Boolean).sort();
+      $('logDateRange').textContent = `${times[0]} ~ ${times[times.length - 1]}`;
+    } else {
+      $('logDateRange').textContent = '';
+    }
+    // 渲染到画布（确保渲染器已初始化且有尺寸）
+    if (!mainRenderer) initRenderers();
+    if (mainRenderer && mainRenderer.w > 0 && mainRenderer.h > 0) {
+      mainRenderer.setData(d.logs);
+    } else if (d.logs.length) {
+      // 渲染器还没就绪，等一帧再试
+      requestAnimationFrame(() => {
+        if (!mainRenderer) initRenderers();
+        if (mainRenderer) { mainRenderer._resize(); mainRenderer.setData(d.logs); }
+      });
+    }
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+/* ---------- 商店流水 ---------- */
+const SHOP_PAGE_SIZE = 100;
+let shopLogPage = 1;
+
+function shopLogRowHtml(l) {
+  const typeText = l.type === 'limit' ? '点数上限 +' + l.amount : '临时涂鸦点 +' + l.amount;
+  const typeBadge = l.type === 'limit' ? 'limit' : 'temp';
+  return `<tr>
+    <td class="muted">${esc(l.created_at || '—')}</td>
+    <td class="mono">${l.user_id}</td>
+    <td>${l.username !== null && l.username !== undefined ? esc(l.username) : '<span class="muted">—</span>'}</td>
+    <td><span class="action-badge ${typeBadge}">${typeText}</span></td>
+    <td class="mono">${l.coins_spent}</td>
+    <td class="mono">${l.amount}</td>
+  </tr>`;
+}
+
+async function loadShopLogs(page) {
+  shopLogPage = Math.max(1, page);
+  const q = new URLSearchParams({ limit: SHOP_PAGE_SIZE, offset: (shopLogPage - 1) * SHOP_PAGE_SIZE });
+  try {
+    const d = await api('GET', '/api/admin/shop-logs?' + q.toString());
+    $('shoplog-rows').innerHTML = d.logs.length
+      ? d.logs.map(shopLogRowHtml).join('') : '<tr><td colspan="6" class="muted">暂无商店流水</td></tr>';
+    $('shoplog-count').textContent = d.total;
+    renderPager('shoplogPrev', 'shoplogNext', 'shoplogPageInfo', shopLogPage, d.total, 'loadShopLogs');
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 单用户画迹弹窗 → 画布缩略图
+async function openUserLogs(userId, username) {
+  userLogUserId = userId;
+  userLogPage = 1;
+  $('userLogTitle').textContent = `用户「${username}」的画迹`;
+  $('userLogModal').classList.remove('hidden');
+  // 清空房间筛选，等待用户选择
+  const rf = document.getElementById('uLogRoomFilter');
+  if (rf) rf.value = '';
+  $('uLogTotalPixels').textContent = '0';
+  $('uLogDateRange').textContent = '';
+  // 等弹窗完成布局后再初始化渲染器（避免画布尺寸为 0）
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  if (!userRenderer) initRenderers();
+  if (userRenderer) { userRenderer._resize(); userRenderer.setData([]); }
+  flash('dash-msg', '请在上方输入房间ID后点击「加载画迹」', true);
+}
+function closeUserLogs() { $('userLogModal').classList.add('hidden'); }
+
+/** 加载用户在某房间的画布当前像素（从 pixels 表，不分页、不含擦除） */
+async function loadUserPixels() {
+  if (userLogUserId == null) return;
+  const roomFilter = document.getElementById('uLogRoomFilter');
+  const roomId = roomFilter && roomFilter.value.trim() ? Number(roomFilter.value.trim()) : null;
+  if (!roomId) { flash('dash-msg', '请先输入房间ID', false); return; }
+  try {
+    const d = await api('GET', `/api/admin/users/${userLogUserId}/pixels?roomId=${roomId}`);
+    $('uLogTotalPixels').textContent = d.total;
+    $('uLogDateRange').textContent = d.total > 0
+      ? `（房间 #${roomId} · 仅显示画布当前状态）` : '';
+    // 确保 userRenderer 已初始化
+    if (!userRenderer) initRenderers();
+    const pixelData = d.pixels.map(p => ({ x: p.x, y: p.y, color: p.color, action: 'place' }));
+    if (userRenderer) { userRenderer._resize(); userRenderer.setData(pixelData); }
+    else if (pixelData.length) {
+      requestAnimationFrame(() => {
+        if (!userRenderer) initRenderers();
+        if (userRenderer) { userRenderer._resize(); userRenderer.setData(pixelData); }
+      });
+    }
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+/** @deprecated 保留兼容旧调用入口 */
+async function loadUserLogs(page) { return loadUserPixels(); }
+
+// 后台删除某用户在某房间的全部画迹（需指定房间ID），二次确认后调用接口
+async function deleteUserPixels(userId) {
+  const roomFilter = document.getElementById('uLogRoomFilter');
+  const roomId = roomFilter && roomFilter.value.trim() ? Number(roomFilter.value.trim()) : null;
+  if (!roomId) { flash('dash-msg', '请先在上方填写要清理的「房间ID」', false); return; }
+  if (!confirm(`确定删除用户 #${userId} 在房间 #${roomId} 的全部画迹？\n该操作不可恢复，且会实时同步给房间内在线玩家。`)) return;
+  try {
+    const d = await api('DELETE', `/api/admin/users/${userId}/pixels`, { roomId });
+    flash('dash-msg', `已删除 ${d.removed} 个像素（房间 #${d.roomId}）`, true);
+    await loadUserPixels();   // 刷新预览
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+function renderPager(prevId, nextId, infoId, page, total, fn) {
+  const pageSize = 5000;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  document.getElementById(prevId).disabled = page <= 1;
+  document.getElementById(nextId).disabled = page >= pages;
+  document.getElementById(infoId).textContent =
+    `第 ${page} / ${pages} 页 · 共 ${total} 条`;
+}
+
+async function loadRooms() {
+  const d = await api('GET', '/api/admin/rooms');
+  roomCache = d.rooms;
+  $('room-count').textContent = d.rooms.length;
+  $('room-rows').innerHTML = d.rooms.map((r) => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${esc(r.name)}</td>
+      <td>${r.isPublic ? '<span class="tag pub">公共</span>' : '<span class="tag priv">私有</span>'}</td>
+      <td class="pwd mono">${r.password ? esc(r.password) : '<span class="muted">无</span>'}</td>
+      <td>${esc(r.owner || '—')}</td>
+      <td>${roomPlayText(r)}</td>
+      <td>${r.pixelCount}</td>
+      <td>${r.online}</td>
+      <td class="muted">${esc(r.createdAt || '—')}</td>
+      <td>
+        <div class="actions">
+          <button class="sm" onclick="openRoomSettings(${r.id}, '${esc(r.name).replace(/'/g, "\\'")}')">设置玩法</button>
+          <button class="sm" onclick="clearRoom(${r.id})">清空画布</button>
+          <button class="sm" onclick="setPwd(${r.id})">改密码</button>
+          ${r.isPublic ? '<span class="muted">不可删</span>' : `<button class="sm danger" onclick="delRoom(${r.id})">删除</button>`}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function roomPlayText(r) {
+  const parts = [];
+  parts.push(r.freeDrawing ? '<span class="action-badge free">免点涂鸦</span>' : '<span class="action-badge place">正常扣点</span>');
+  parts.push(r.pointRegenSeconds != null
+    ? `<span class="action-badge temp">恢复 ${r.pointRegenSeconds}s</span>`
+    : '<span class="muted">跟随全局</span>');
+  return parts.join(' ');
+}
+
+/* ---------- 房间玩法设置弹窗 ---------- */
+let roomSettingId = null;
+let roomCache = null;
+function openRoomSettings(id, name) {
+  roomSettingId = id;
+  $('roomSetTitle').textContent = `房间玩法设置 · ${name}`;
+  const r = roomCache ? roomCache.find((x) => x.id === id) : null;
+  $('roomSetFree').checked = !!(r && r.freeDrawing);
+  $('roomSetRegen').value = (r && r.pointRegenSeconds != null) ? r.pointRegenSeconds : '';
+  $('roomSetMsg').textContent = '';
+  $('roomSetModal').classList.remove('hidden');
+}
+function closeRoomSettings() { $('roomSetModal').classList.add('hidden'); }
+
+async function saveRoomSettingsAdmin() {
+  const body = { freeDrawing: $('roomSetFree').checked };
+  const v = $('roomSetRegen').value.trim();
+  if (v !== '') body.pointRegenSeconds = Number(v);
+  try {
+    const d = await api('POST', `/api/admin/rooms/${roomSettingId}/settings`, body);
+    flash('dash-msg', '房间玩法已更新', true);
+    closeRoomSettings();
+    refreshAll();
+  } catch (e) { $('roomSetMsg').textContent = e.message; }
+}
+
+async function clearRoom(id) {
+  if (!confirm('确认清空该房间全部像素？此操作不可恢复。')) return;
+  try { await api('POST', `/api/admin/rooms/${id}/clear`); flash('dash-msg', '画布已清空', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function setPwd(id) {
+  const pwd = prompt('设置房间密码（留空表示取消密码）：');
+  if (pwd === null) return;
+  try { await api('POST', `/api/admin/rooms/${id}/password`, { password: pwd }); flash('dash-msg', '密码已更新', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+async function delRoom(id) {
+  if (!confirm('确认删除该房间？房间内像素将一并清除。')) return;
+  try { await api('DELETE', `/api/admin/rooms/${id}`); flash('dash-msg', '已删除房间', true); refreshAll(); }
+  catch (e) { flash('dash-msg', e.message, false); }
+}
+
+async function saveSettings() {
+  try {
+    const v = Math.trunc(Number($('regenInput').value));
+    const evr = $('evrInput').checked;
+    const d = await api('POST', '/api/admin/settings', { pointRegenSeconds: v, emailVerifyRequired: evr });
+    flash('dash-msg', `已保存（间隔 ${d.pointRegenSeconds}s，邮箱验证${d.emailVerifyRequired ? '开' : '关'}）`, true);
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 保存邮件发信设置（后台管理员账号 + SMTP 授权码）
+async function saveEmailSettings() {
+  try {
+    const d = await api('POST', '/api/admin/email-settings', {
+      emailUser: $('emailUserInput').value.trim(),
+      emailPass: $('emailPassInput').value,
+    });
+    flash('dash-msg', '邮件发信设置已保存', true);
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 发信测试（使用已保存的配置向管理员邮箱发送测试邮件）
+async function testEmail() {
+  const to = prompt('请输入收件邮箱地址（用于接收测试邮件）：');
+  if (!to || !to.trim()) return;
+  try {
+    const d = await api('POST', '/api/admin/email-test', { to: to.trim() });
+    flash('dash-msg', `测试邮件已发送至 ${to.trim()}，请查收`, true);
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 用户详情：查看 / 修改账号、密码、邮箱
+let _detailUserId = null;
+function openUserDetail(id) {
+  const u = (window._usersCache || []).find((x) => x.id === id);
+  if (!u) return;
+  _detailUserId = id;
+  $('udUser').value = u.username;
+  $('udPass').value = u.password;
+  $('udEmail').value = u.email || '';
+  $('udErr').textContent = '';
+  show('userDetailModal', true);
+}
+async function saveUserDetail() {
+  const username = $('udUser').value.trim();
+  const password = $('udPass').value;
+  const email = $('udEmail').value.trim();
+  $('udErr').textContent = '';
+  try {
+    const d = await api('PUT', `/api/admin/users/${_detailUserId}`, { username, password, email });
+    flash('dash-msg', `已保存：${d.user.username}`, true);
+    show('userDetailModal', false);
+    refreshAll();
+  } catch (e) { $('udErr').textContent = e.message; }
+}
+
+async function setUserPoints(id, cur, limit) {
+  const v = prompt('设置作画点数（当前 ' + cur + '，上限 ' + limit + '）', String(cur));
+  if (v === null) return;
+  try {
+    const d = await api('POST', `/api/admin/users/${id}/points`, { points: Number(v) });
+    flash('dash-msg', '点数已更新为 ' + d.points, true); refreshAll();
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+async function setUserCoins(id, cur) {
+  const v = prompt('设置涂鸦币数量（当前 ' + cur + '）', String(cur));
+  if (v === null) return;
+  const n = Math.max(0, Math.floor(Number(v)));
+  if (!Number.isFinite(n)) return;
+  try {
+    const d = await api('POST', `/api/admin/users/${id}/coins`, { coins: n });
+    flash('dash-msg', '涂鸦币已设置为 ' + d.coins, true); refreshAll();
+  } catch (e) { flash('dash-msg', e.message, false); }
+}
+
+// 自动校验登录态
+(async function init() {
+  // 强制：未确认登录前，dashboard 必须隐藏
+  $('dash').style.display = 'none';
+  $('dash').classList.add('hidden');
+  $('login').classList.add('hidden');
+  $('login').style.display = '';
+
+  if (!token) { show('login', true); return; }
+  try {
+    await api('GET', '/api/admin/stats');
+    openDash();
+  } catch (e) {
+    localStorage.removeItem('adminToken');
+    token = '';
+    show('login', true);
+  }
+})();
+</script>
+</body>
+</html>

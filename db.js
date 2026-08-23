@@ -29,16 +29,32 @@ const mysql = require('mysql2/promise');
 
 // ---------- MySQL 连接池 ----------
 // 默认库名/账号/密码均为 qypixel，可通过 .env 覆盖。
-const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || '127.0.0.1',
-  port: Number(process.env.MYSQL_PORT || 3306),
-  user: process.env.MYSQL_USER || 'qypixel',
-  password: process.env.MYSQL_PASS || 'qypixel',
-  database: process.env.MYSQL_DB || 'qypixel',
-  waitForConnections: true,
-  connectionLimit: 10,
-  charset: 'utf8mb4',
-});
+// 池可热重建：安装向导写入 .env 后调用 reloadPool() 即可切换，无需重启进程。
+let pool = null;
+function makePool() {
+  // 注意：密码允许为空（如 root 无密码），故仅当变量“未定义”时才回退默认值，
+  // 不能写 `|| 'qypixel'`，否则空密码会被错误地替换成默认密码导致连接失败。
+  return mysql.createPool({
+    host: process.env.MYSQL_HOST || '127.0.0.1',
+    port: Number(process.env.MYSQL_PORT || 3306),
+    user: process.env.MYSQL_USER || 'qypixel',
+    password: process.env.MYSQL_PASS !== undefined ? process.env.MYSQL_PASS : 'qypixel',
+    database: process.env.MYSQL_DB || 'qypixel',
+    waitForConnections: true,
+    connectionLimit: 10,
+    charset: 'utf8mb4',
+  });
+}
+async function reloadPool() {
+  if (pool) { try { await pool.end(); } catch (e) { /* 忽略关闭错误 */ } }
+  pool = makePool();
+  return pool;
+}
+// 安装流程用：用用户提供的 MySQL 账号直接建库/建表，不经过应用连接池
+async function connectRaw(config) {
+  return mysql.createConnection(config);
+}
+reloadPool();
 
 // ---------- 通用查询封装 ----------
 async function run(sql, params = []) {
@@ -55,8 +71,8 @@ async function get(sql, params = []) {
 }
 
 // ---------- 初始化默认数据 ----------
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
+let ADMIN_USER = process.env.ADMIN_USER || 'admin';
+let ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 const PUBLIC_ROOM_NAME = '公共画布';
 
 async function runSql(sql) {
@@ -74,7 +90,10 @@ async function ensureColumn(table, column, ddl) {
   }
 }
 
-async function initDB() {
+// opts.adminUser / opts.adminPass：安装向导提供的后台管理员账号密码（优先于 .env 默认值）
+async function initDB(opts = {}) {
+  ADMIN_USER = opts.adminUser || ADMIN_USER;
+  ADMIN_PASS = opts.adminPass || ADMIN_PASS;
   // ---- 建表（InnoDB + utf8mb4）----
   await runSql(`CREATE TABLE IF NOT EXISTS users (
     id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -252,9 +271,6 @@ const Q = {
   setCoins: (coins, id) => run('UPDATE users SET coins = ? WHERE id = ?', [coins, id]),
   // 原子扣 1 点（并发安全）：affectedRows=0 表示点数不足
   spendPoint: (id) => run('UPDATE users SET points = points - 1 WHERE id = ? AND points > 0', [id]),
-  // 预览恢复：加回 count 点（不超过上限）
-  restorePoints: (count, id) =>
-    run('UPDATE users SET points = LEAST(point_limit, points + ?) WHERE id = ?', [count, id]),
 
   // ---- 商店 ----
   // 原子扣 1 临时点（优先消耗临时点）；affectedRows=0 表示临时点用尽
@@ -364,20 +380,42 @@ const Q = {
       [roomId, x, y, color, userId, color, userId]),
   deletePixel: (roomId, x, y) => run('DELETE FROM pixels WHERE room_id = ? AND x = ? AND y = ?', [roomId, x, y]),
   clearRoom: (roomId) => run('DELETE FROM pixels WHERE room_id = ?', [roomId]),
+  // 删除某用户在指定房间的全部画迹：先取出坐标（用于实时广播让客户端清除），
+  // 再删 pixels 当前画布状态与 pixel_logs 历史记录。返回被删坐标数组。
+  deleteUserPixelsInRoom: async (roomId, userId) => {
+    const coords = await all('SELECT x, y FROM pixels WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+    if (!coords.length) return { coords: [] };
+    await run('DELETE FROM pixels WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+    await run('DELETE FROM pixel_logs WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+    return { coords: coords.map((c) => [c.x, c.y]) };
+  },
+
+  // 查询某用户在指定房间的全部当前画布像素（从 pixels 表，即画布最终状态）。
+  // 返回 [{x, y, color}] — 天然不含擦除（擦除 = DELETE from pixels），无需分页。
+  listUserPixels: (userId, roomId) =>
+    all('SELECT x, y, color FROM pixels WHERE room_id = ? AND user_id = ?', [roomId, userId]),
 
   // 画迹日志
   insertPixelLog: (userId, roomId, x, y, color, action) =>
     run('INSERT INTO pixel_logs (user_id, room_id, x, y, color, action) VALUES (?, ?, ?, ?, ?, ?)',
       [userId, roomId, x, y, color, action]),
   // 注意：LIMIT/OFFSET 已由调用方约束为整数，内联进 SQL（mysql2 execute 对 LIMIT ? 绑定会报 ER_WRONG_ARGUMENTS）
-  listUserLogs: (userId, limit, offset) => all(`
-    SELECT l.id, l.x, l.y, l.color, l.action,
-           DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-           r.name AS room_name
-    FROM pixel_logs l LEFT JOIN rooms r ON r.id = l.room_id
-    WHERE l.user_id = ? ORDER BY l.id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [userId]),
-  countUserLogs: (userId) => get('SELECT COUNT(*) AS c FROM pixel_logs WHERE user_id = ?', [userId]),
+  listUserLogs: (userId, limit, offset, roomId = null) => {
+    const where = roomId != null ? 'WHERE l.user_id = ? AND l.room_id = ?' : 'WHERE l.user_id = ?';
+    const params = roomId != null ? [userId, roomId] : [userId];
+    return all(`
+      SELECT l.id, l.x, l.y, l.color, l.action,
+             DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+             r.name AS room_name
+      FROM pixel_logs l LEFT JOIN rooms r ON r.id = l.room_id
+      ${where} ORDER BY l.id DESC LIMIT ${limit} OFFSET ${offset}`,
+      params);
+  },
+  countUserLogs: (userId, roomId = null) => {
+    const where = roomId != null ? 'WHERE user_id = ? AND room_id = ?' : 'WHERE user_id = ?';
+    const params = roomId != null ? [userId, roomId] : [userId];
+    return get(`SELECT COUNT(*) AS c FROM pixel_logs ${where}`, params);
+  },
   listLogsAdminView: (where, params, limit, offset) => all(`
     SELECT l.id, l.x, l.y, l.color, l.action,
            DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
@@ -394,6 +432,23 @@ const Q = {
     ${where}`,
     params),
 
+  // 画迹总览：从 pixels 表读取画布当前状态（仅含实际存在的像素，不含擦除历史）
+  listAllPixelsAdmin: (where, params, limit, offset) => all(`
+    SELECT p.x, p.y, p.color, p.room_id, p.user_id, p.updated_at,
+           DATE_FORMAT(p.updated_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+           r.name AS room_name, u.username AS username
+    FROM pixels p
+    LEFT JOIN rooms r ON r.id = p.room_id
+    LEFT JOIN users u ON u.id = p.user_id
+    ${where} ORDER BY p.room_id, p.x, p.y LIMIT ${limit} OFFSET ${offset}`,
+    params),
+  countAllPixelsAdmin: (where, params) => all(`
+    SELECT COUNT(*) AS c FROM pixels p
+    LEFT JOIN rooms r ON r.id = p.room_id
+    LEFT JOIN users u ON u.id = p.user_id
+    ${where}`,
+    params),
+
   // sessions
   createSession: (token, userId, kind) =>
     run('INSERT INTO sessions (token, user_id, kind) VALUES (?, ?, ?)', [token, userId, kind]),
@@ -406,4 +461,4 @@ function newToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-module.exports = { pool, Q, newToken, ADMIN_USER, PUBLIC_ROOM_NAME, initDB, dbGet: get, dbAll: all, dbRun: run };
+module.exports = { pool, Q, newToken, ADMIN_USER, PUBLIC_ROOM_NAME, initDB, dbGet: get, dbAll: all, dbRun: run, reloadPool, connectRaw };
