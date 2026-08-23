@@ -1,6 +1,5 @@
 <div align="center">
 
-**Language / 语言:**
 
 [![English](https://img.shields.io/badge/English%20Docs-README-blue?style=for-the-badge&logo=readthedocs)](README_EN.md)
 [![中文](https://img.shields.io/badge/中文文档-README-red?style=for-the-badge&logo=readthedocs)](README.md)
