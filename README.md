@@ -1,5 +1,20 @@
 # PixelVerse‑Wplace
-
+<div style="display: flex; align-items: center; justify-content: center; margin: 10px">
+      <img
+        align=center
+        src="https://img.shields.io/github/stars/2692643871/PixelVerse---Wplace-?style=plastic&logoColor=%231677ff&labelColor=rgb(89, 89, 89)&color=rgb(3, 126, 187)"
+        style="margin: 0 5px"
+      /><img
+        align=center
+        src="https://img.shields.io/github/watchers/2692643871/PixelVerse---Wplace-?style=plastic&logoColor=%231677ff&labelColor=rgb(89, 89, 89)&color=rgb(3, 126, 187)""
+        style="margin: 0 5px"
+      />
+      <img
+        align=center
+        src="https://img.shields.io/github/forks/2692643871/PixelVerse---Wplace-?style=plastic&logoColor=%231677ff&labelColor=rgb(89, 89, 89)&color=rgb(3, 126, 187)"
+        style="margin: 0 5px"
+      />
+    </div>
 <div align="center">
 
 **语言 / Language:** [🇨🇳 中文](README.md) · [🇺🇸 English](README_EN.md)
